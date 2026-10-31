@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Dungeon Arena — Dunia Luar</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+  "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.3.3/lib/three-vrm.module.js"
+} }
+</script>
+</head>
+<body>
+<div id="hud">
+  <div id="fade"></div>
+  <div id="wave"></div>
+  <div id="obj" hidden><i id="objA">▲</i><span id="objD"></span><small>🕳️ Lubang Dungeon</small></div>
+  <div id="boss" hidden><span>Malzareth, Penyihir Kegelapan</span><div class="bar"><i id="bossbar"></i></div></div>
+  <div id="pl"><b>Louis</b><div class="bar hp"><i id="hpbar"></i></div></div>
+  <div id="help">WASD gerak · Spasi / Klik serang · Shift berguling (lari di dunia luar) · E mengobrol dengan warga · 1 2 3 4 skill · C ganti kamera · Mouse putar & naik-turun kamera 360° · Roll mouse zoom · F layar penuh · Esc pengaturan · 🌲 Di hutan ada slime & goblin liar: lawan dengan serangan & skill</div>
+  <div id="msg">Memuat karakter...</div>
+  <button id="again" hidden>↻ Main Lagi</button>
+  <button id="exit" hidden>🌿 Keluar Dungeon</button>
+  <button id="talk" hidden>💬 Mengobrol <small>E</small></button>
+  <div id="toast" hidden></div>
+  <div id="vig"></div>
+  <div id="top"><button id="tfs" title="Layar penuh">⛶</button><button id="tset">⚙️ Pengaturan</button></div>
+  <div id="settings" hidden>
+    <div class="card">
+      <h2>⚙️ Pengaturan</h2>
+      <div class="row"><span>🎥 Kamera</span>
+        <div class="seg" id="segcam"><button data-cam="depan">Depan</button><button data-cam="atas">Atas</button><button data-cam="orbit">360°</button></div></div>
+      <div class="row"><span>🎮 Kontrol</span>
+        <div class="seg" id="segmode"><button data-mode="pc">🖥️ PC</button><button data-mode="android">📱 Android</button></div></div>
+      <div class="row"><span>🎵 Musik</span>
+        <div class="seg" id="segmusic"><button data-music="on">🔊 Nyala</button><button data-music="off">🔇 Mati</button></div></div>
+      <div class="row"><span>🔉 Volume musik <b id="voltxt">60%</b></span><input type="range" id="vol" min="0" max="100" step="1" value="60"></div>
+      <div class="row"><span>⚔️ Volume efek suara <b id="sfxtxt">80%</b></span><input type="range" id="sfxvol" min="0" max="100" step="1" value="80"></div>
+      <div class="row"><span>🖵 Layar</span><button id="sfs" class="wide">⛶ Layar Penuh</button></div>
+      <button id="sclose">Tutup</button>
+    </div>
+  </div>
+  <div id="stick"><i id="knob"></i></div>
+  <div id="btns">
+    <button data-a="s1" title="Vertical Spin">🌀<small>1</small></button>
+    <button data-a="s2" title="Slash Besar">🗡️<small>2</small></button>
+    <button data-a="s3" title="Summon Blade">🔮<small>3</small></button>
+    <button data-a="s4" title="Penguatan dan Perlindungan">🛡️<small>4</small></button>
+    <button data-a="roll" class="tonly">💨</button>
+    <button data-a="atk" class="tonly">⚔️ Serang</button>
+  </div>
+</div>
+<script type="module" src="game.js"></script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+*{margin:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;background:#07060a;font-family:Georgia,serif;color:#e8dcc0;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+canvas{display:block}
+#hud{position:fixed;inset:0;pointer-events:none}
+#wave{position:absolute;top:16px;left:50%;transform:translateX(-50%);font-size:18px;letter-spacing:3px;text-transform:uppercase;text-shadow:0 2px 6px #000}
+#boss{position:absolute;top:50px;left:50%;transform:translateX(-50%);width:min(520px,80vw);text-align:center;font-size:15px}
+#pl{position:absolute;left:20px;bottom:20px;width:min(300px,60vw)}
+.bar{height:14px;margin-top:4px;background:#1b1418;border:2px solid #6b5a3a;border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;width:100%;background:linear-gradient(#b02a8a,#6a1a60);transition:width .15s}
+.bar.hp i{background:linear-gradient(#d33,#811)}
+#help{position:absolute;right:20px;bottom:20px;font-size:13px;opacity:.7}
+#msg{position:absolute;top:40%;left:50%;transform:translate(-50%,-50%);font-size:clamp(24px,5vw,46px);text-align:center;text-shadow:0 0 20px #000,0 3px 8px #000;white-space:pre-line}
+#vig{position:absolute;inset:0;box-shadow:inset 0 0 160px 40px rgba(200,0,0,.65);opacity:0;transition:opacity .35s}
+#vig.on{opacity:1;transition:none}
+
+body{touch-action:none}
+button{font:inherit;color:inherit;border:2px solid #6b5a3a;background:rgba(20,14,22,.75);pointer-events:auto;touch-action:none;position:relative;overflow:hidden;cursor:pointer}
+#top{position:absolute;top:10px;right:10px;display:flex;gap:8px;pointer-events:auto}
+#top button{padding:6px 10px;border-radius:8px;font-size:13px}
+#btns{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:10px;pointer-events:auto}
+#btns button{width:62px;height:62px;border-radius:50%;font-size:26px;line-height:1}
+#btns button::after{content:'';position:absolute;inset:auto 0 0 0;height:calc(var(--cd,0)*100%);background:rgba(0,0,0,.7)}
+#btns small{position:absolute;top:3px;left:0;right:0;font-size:11px;opacity:.8}
+.tonly,#stick{display:none}
+#stick{position:absolute;left:28px;bottom:28px;width:140px;height:140px;border-radius:50%;border:2px solid #6b5a3a;background:rgba(255,255,255,.06);pointer-events:auto;touch-action:none}
+#knob{position:absolute;left:50%;top:50%;width:58px;height:58px;margin:-29px 0 0 -29px;border-radius:50%;background:rgba(232,220,192,.4);border:2px solid #e8dcc0}
+body.touch #stick{display:block}
+body.touch .tonly{display:block}
+body.touch #help,body.touch #btns small{display:none}
+body.touch #pl{bottom:auto;top:12px;left:12px;width:min(220px,38vw)}
+body.touch #btns{left:auto;right:16px;bottom:16px;transform:none;display:grid;grid-template-columns:repeat(4,62px)}
+body.touch #btns [data-a=atk]{grid-column:span 3;width:100%;border-radius:31px;font-size:18px}
+
+/* tombol Main Lagi + teks kalah (berfungsi di HP & PC) */
+#again{position:absolute;left:50%;top:64%;transform:translateX(-50%);padding:14px 32px;border-radius:30px;font-size:20px;letter-spacing:2px;background:rgba(40,16,70,.88);border-color:#a23cff;box-shadow:0 0 24px rgba(162,60,255,.55);animation:pop .4s ease-out}
+@keyframes pop{from{opacity:0;transform:translateX(-50%) scale(.8)}to{opacity:1;transform:translateX(-50%) scale(1)}}
+#msg.in{animation:fadein 1s ease-out}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+
+/* menu pengaturan (kamera + mode kontrol) */
+#settings{position:absolute;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;pointer-events:auto;touch-action:none}
+#settings[hidden]{display:none}
+#settings .card{width:min(420px,90vw);padding:20px;border:2px solid #6b5a3a;border-radius:12px;background:rgba(20,14,22,.96);box-shadow:0 0 30px #000}
+#settings h2{font-size:22px;margin-bottom:10px;text-align:center;letter-spacing:2px}
+#settings .row{margin:16px 0}
+#settings .row>span{display:block;margin-bottom:6px;font-size:15px;opacity:.85}
+.seg{display:flex;gap:6px}
+.seg button{flex:1;padding:10px 6px;border-radius:8px;font-size:15px}
+.seg button.on{background:#6b5a3a;border-color:#e8dcc0}
+#sclose{display:block;width:100%;margin-top:6px;padding:10px;border-radius:8px;font-size:16px}
+.wide{display:block;width:100%;padding:10px;border-radius:8px;font-size:15px}
+#toast{position:absolute;left:50%;top:14%;transform:translateX(-50%);padding:8px 16px;border-radius:20px;background:rgba(20,14,22,.85);border:2px solid #6b5a3a;font-size:14px;text-align:center;max-width:90vw;animation:fadein .3s ease-out}
+body.orbit canvas{cursor:grab}
+
+/* dunia luar: layar hitam saat pindah, petunjuk arah ke lubang dungeon */
+#fade{position:absolute;inset:0;background:#000;opacity:1;pointer-events:none}
+#obj{position:absolute;top:46px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:4px 14px;border-radius:20px;background:rgba(20,14,22,.55);border:1px solid #6b5a3a;font-size:15px;text-shadow:0 2px 6px #000;white-space:nowrap}
+#obj[hidden]{display:none}
+#objA{display:inline-block;color:#c68bff;font-style:normal;font-size:20px;line-height:1}
+#obj small{opacity:.75;font-size:13px}
+#exit{position:absolute;left:50%;top:calc(64% + 62px);transform:translateX(-50%);padding:12px 28px;border-radius:30px;font-size:18px;letter-spacing:2px;background:rgba(16,50,24,.88);border-color:#5fd06a;box-shadow:0 0 22px rgba(95,208,106,.5)}
+#exit[hidden]{display:none}
+
+/* tombol Mengobrol: muncul hanya saat dekat warga desa */
+#talk{position:absolute;left:50%;bottom:104px;transform:translateX(-50%);padding:12px 22px;border-radius:30px;font-size:18px;pointer-events:auto;background:rgba(20,14,22,.88);color:#f3e3bd;border:2px solid #c9a24d;animation:fadein .2s ease-out}
+#talk small{margin-left:8px;font-size:12px;opacity:.7}
+#talk[hidden]{display:none}
+body.touch #talk{left:auto;right:16px;bottom:170px;transform:none}
+body.touch #talk small{display:none}
+
+/* pengaturan audio */
+#settings .row>span b{float:right;font-weight:normal;opacity:.8}
+#vol,#sfxvol{width:100%;height:32px;accent-color:#c9a24d;touch-action:pan-x;cursor:pointer}
+#vol:disabled{opacity:.35;cursor:default}
+#settings .card{max-height:92vh;overflow-y:auto}
