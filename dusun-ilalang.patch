@@ -1,0 +1,483 @@
+diff --git a/city-layout.js b/city-layout.js
+index b092202..973cc92 100644
+--- a/city-layout.js
++++ b/city-layout.js
+@@ -16,6 +16,9 @@ export const CITY = { name: 'Kota Arunika', x: 340, z: 52, radius: 70, open: tru
+ // ---------- Interior Katedral ----------
+ // Ruang dalam katedral dibangun terpisah (church.js) di titik jauh di luar peta; pemain "dipindahkan" ke sana lewat pintu depan katedral.
+ // Koordinat ruang dalam: x ke kanan, z ke depan; pintu keluar di ujung +z (selatan), altar di ujung -z (utara).
++// Titik muncul pemain saat game dimulai: di jalan utama sebelah barat alun-alun, menghadap timur (ke alun-alun & istana).
++export const CITY_SPAWN = { x: CITY.x - 16, z: CITY.z, face: Math.PI / 2 };
++
+ export const CHURCH = {
+   name: 'Katedral Arunika',
+   x: CITY.x, z: CITY.z + 220,                                          // pusat ruang dalam
+diff --git a/dusun.js b/dusun.js
+new file mode 100644
+index 0000000..2bf6b23
+--- /dev/null
++++ b/dusun.js
+@@ -0,0 +1,202 @@
++import * as THREE from 'three';
++import { DUSUN, dusunYaw, D_HOUSES, D_PLAZA_R, D_WELL, D_PLOT, D_HAYSTACKS, D_BARRELS, D_CRATES, D_LAMPS, D_SIGN, D_ENTRANCE, D_PEN, footprintCircles, doorPoint } from './meadow-village-layout.js';
++
++// ============================================================
++//  Membangun Dusun Ilalang (desa kecil di Padang Rumput) — gaya low-poly yang sama dengan Desa Padang Hijau (village.js).
++//  Dipanggil dari meadow.js pada bagian padang yang memuat dusun ini. Datar di y = 0, seperti seluruh padang.
++//  Memakai generator acak sendiri supaya letak rumput / pohon / batu padang tidak bergeser.
++// ============================================================
++function canvasTex(size, draw) {
++  const c = document.createElement('canvas'); c.width = c.height = size; draw(c.getContext('2d'), size);
++  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
++}
++const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true, ...extra });
++function mulberry32(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
++
++export function buildDusun({ colliders, ribbon, tex }) {
++  const g = new THREE.Group(); g.name = 'dusun-ilalang';
++  const rand = mulberry32(1101202), R = (a, b) => a + rand() * (b - a);
++  const shadow = m => { m.castShadow = true; m.receiveShadow = true; return m; };
++  const add = (parent, geo, mat, x = 0, y = 0, z = 0) => { const m = shadow(new THREE.Mesh(geo, mat)); m.position.set(x, y, z); parent.add(m); return m; };
++  const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
++  const wp = (c, lx, lz) => ({ x: c.x + DUSUN.tx * lx - DUSUN.tz * lz, z: c.z + DUSUN.tz * lx + DUSUN.tx * lz });   // titik lokal (sejajar jalan) -> dunia
++
++  const M = {
++    stone: std(0x8d8a85), timber: std(0x5b3d22), door: std(0x5a3a22), hay: std(0xd8b44a), soil: std(0x5d4128), crop: std(0x4f9c39),
++    water: new THREE.MeshStandardMaterial({ color: 0x2a5a8a, roughness: 0.2 }),
++    glass: new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffa83a, emissiveIntensity: 0.55, roughness: 0.6 }),
++    lantern: new THREE.MeshStandardMaterial({ color: 0xffe2a0, emissive: 0xffb040, emissiveIntensity: 1.4 }),
++    iron: std(0x3a3a40),
++  };
++  const wallMats = {}, roofMats = {};
++  const wallMat = c => wallMats[c] || (wallMats[c] = std(c)), roofMat = c => roofMats[c] || (roofMats[c] = std(c));
++
++  // ---------- Jalan tanah: dari jalan padang ke alun-alun, alun-alun, dan jalan setapak ke tiap pintu ----------
++  const dirtMat = () => new THREE.MeshStandardMaterial({ map: tex.dirt, roughness: 1, transparent: true, alphaMap: tex.edgeAlpha(), depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
++  const road = (pts, w, y) => {
++    const c = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(p.x, 0, p.z))), pp = c.getPoints(Math.max(8, Math.round(c.getLength() * 1.6)));
++    const m = new THREE.Mesh(ribbon(pp, w, 3.2), dirtMat()); m.position.y = y; m.receiveShadow = true; g.add(m);
++  };
++  road(D_ENTRANCE, 2.9, 0.0185);
++  for (const h of D_HOUSES) {
++    const d = doorPoint(h, 0.6), a = Math.atan2(d.x - DUSUN.x, d.z - DUSUN.z), e = { x: DUSUN.x + Math.sin(a) * (D_PLAZA_R - 1), z: DUSUN.z + Math.cos(a) * (D_PLAZA_R - 1) };
++    road([e, { x: (e.x + d.x) / 2, z: (e.z + d.z) / 2 }, d], 1.7, 0.0165);
++  }
++  { const plaza = new THREE.Mesh(new THREE.CircleGeometry(D_PLAZA_R, 40), new THREE.MeshStandardMaterial({ map: tex.dirt, roughness: 1, transparent: true, alphaMap: tex.radialAlpha(0.72), depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
++    plaza.rotation.x = -Math.PI / 2; plaza.position.set(DUSUN.x, 0.02, DUSUN.z); plaza.receiveShadow = true; g.add(plaza); }
++
++  // ---------- Rumah & lumbung ----------
++  const WALL_H = 2.5, BASE_H = 0.35;
++  function roofGeo(h) {
++    if (h.kind === 'hip') {
++      const geo = new THREE.ConeGeometry(1, 1.7, 4, 1); geo.rotateY(Math.PI / 4);
++      geo.scale((h.w + 1.0) / 2 / 0.7071, 1, (h.d + 1.0) / 2 / 0.7071); geo.translate(0, 0.85, 0); return { geo, h: 1.7 };
++    }
++    const rh = h.kind === 'barn' ? 2.3 : 1.7, hd = (h.d + 0.9) / 2, len = h.w + 0.9;
++    const s = new THREE.Shape(); s.moveTo(-hd, 0); s.lineTo(hd, 0); s.lineTo(0, rh); s.closePath();
++    const geo = new THREE.ExtrudeGeometry(s, { depth: len, bevelEnabled: false });
++    geo.translate(0, 0, -len / 2); geo.rotateY(Math.PI / 2); return { geo, h: rh };
++  }
++  function makeHouse(h) {
++    const grp = new THREE.Group(); grp.position.set(h.x, 0, h.z); grp.rotation.y = h.yaw;
++    const wm = wallMat(h.wall), barn = h.kind === 'barn';
++    add(grp, box(h.w + 0.3, BASE_H, h.d + 0.3), M.stone, 0, BASE_H / 2, 0);
++    add(grp, box(h.w, WALL_H, h.d), wm, 0, BASE_H + WALL_H / 2, 0);
++    for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(grp, box(0.2, WALL_H, 0.2), M.timber, sx * h.w / 2, BASE_H + WALL_H / 2, sz * h.d / 2);
++    add(grp, box(h.w + 0.1, 0.16, h.d + 0.1), M.timber, 0, BASE_H + WALL_H - 0.1, 0);
++    if (!barn) add(grp, box(h.w + 0.1, 0.12, h.d + 0.1), M.timber, 0, BASE_H + 1.05, 0);
++    const rg = roofGeo(h); add(grp, rg.geo, roofMat(h.roof), 0, BASE_H + WALL_H, 0);
++    const fz = h.d / 2;
++    if (barn) {
++      add(grp, box(2.6, 2.0, 0.12), M.door, 0, BASE_H + 1.0, fz + 0.04);
++      add(grp, box(0.14, 2.0, 0.16), M.timber, 0, BASE_H + 1.0, fz + 0.06);
++      add(grp, box(2.8, 0.14, 0.16), M.timber, 0, BASE_H + 1.55, fz + 0.06);
++    } else {
++      add(grp, box(0.95, 1.75, 0.12), M.door, 0, BASE_H + 0.875, fz + 0.04);
++      add(grp, box(1.15, 0.12, 0.16), M.timber, 0, BASE_H + 1.8, fz + 0.05);
++      add(grp, box(1.3, 0.1, 0.6), M.stone, 0, 0.05, fz + 0.45);
++      for (const sx of [-1, 1]) {
++        const wx = sx * h.w * 0.3;
++        add(grp, box(0.78, 0.78, 0.1), M.glass, wx, BASE_H + 1.55, fz + 0.03);
++        add(grp, box(0.95, 0.1, 0.16), M.timber, wx, BASE_H + 1.1, fz + 0.06);
++        add(grp, box(0.16, 0.9, 0.16), M.timber, wx - 0.5, BASE_H + 1.55, fz + 0.06);
++        add(grp, box(0.16, 0.9, 0.16), M.timber, wx + 0.5, BASE_H + 1.55, fz + 0.06);
++      }
++      add(grp, box(0.7, 1.6, 0.7), M.stone, h.w * 0.25, BASE_H + WALL_H + rg.h * 0.55, -h.d * 0.2);   // cerobong
++    }
++    g.add(grp);
++    for (const c of footprintCircles(h)) colliders.push({ x: c.x, z: c.z, r: c.r + 0.1 });
++  }
++  D_HOUSES.forEach(makeHouse);
++
++  // ---------- Sumur ----------
++  { const w = new THREE.Group(); w.position.set(D_WELL.x, 0, D_WELL.z);
++    add(w, new THREE.CylinderGeometry(0.95, 1.05, 0.95, 12), M.stone, 0, 0.475, 0);
++    const water = new THREE.Mesh(new THREE.CircleGeometry(0.72, 12), M.water); water.rotation.x = -Math.PI / 2; water.position.y = 0.8; w.add(water);
++    for (const s of [-1, 1]) add(w, box(0.14, 2.1, 0.14), M.timber, s * 0.95, 1.5, 0);
++    add(w, new THREE.CylinderGeometry(0.07, 0.07, 2.1, 6).rotateZ(Math.PI / 2), M.timber, 0, 2.3, 0);
++    const roof = add(w, new THREE.ConeGeometry(1.5, 0.9, 4), roofMat(0x8a3b2c), 0, 2.85, 0); roof.rotation.y = Math.PI / 4;
++    add(w, new THREE.CylinderGeometry(0.2, 0.17, 0.26, 8), M.timber, 0.25, 1.75, 0);
++    g.add(w); colliders.push({ x: D_WELL.x, z: D_WELL.z, r: D_WELL.r }); }
++
++  // ---------- Kebun sayur + pagar + orang-orangan sawah (sejajar jalan) ----------
++  { const p = new THREE.Group(); p.position.set(D_PLOT.x, 0, D_PLOT.z); p.rotation.y = dusunYaw; g.add(p);
++    const soil = new THREE.Mesh(box(D_PLOT.w, 0.12, D_PLOT.d), M.soil); soil.position.y = 0.04; soil.receiveShadow = true; p.add(soil);
++    const rows = 4, per = 7, d = new THREE.Object3D(), tc = new THREE.Color();
++    const crops = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.2, 0), M.crop, rows * per); crops.castShadow = true; let n = 0;
++    for (let r = 0; r < rows; r++) for (let c = 0; c < per; c++) {
++      d.position.set(-D_PLOT.w / 2 + 0.5 + c * ((D_PLOT.w - 1.0) / (per - 1)), 0.25, -D_PLOT.d / 2 + 0.55 + r * ((D_PLOT.d - 1.1) / (rows - 1))); d.scale.set(R(0.9, 1.3), R(1.0, 1.8), R(0.9, 1.3)); d.rotation.set(0, 0, 0); d.updateMatrix();
++      crops.setMatrixAt(n, d.matrix); crops.setColorAt(n, tc.setRGB(R(0.8, 1.1), R(0.9, 1.2), R(0.7, 1))); n++;
++    }
++    p.add(crops);
++    const hx = D_PLOT.w / 2 + 0.5, hz = D_PLOT.d / 2 + 0.5, posts = [];
++    for (let x = -hx; x <= hx + 0.01; x += hx / 2) { posts.push([x, -hz]); posts.push([x, hz]); }
++    for (let z = -hz + hz / 2; z < hz - 0.01; z += hz / 2) { posts.push([hx, z]); posts.push([-hx, z]); }
++    const pi = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.07, 0.08, 1.0, 6).translate(0, 0.5, 0), M.timber, posts.length); pi.castShadow = true;
++    posts.forEach(([x, z], i) => { d.position.set(x, 0, z); d.scale.set(1, 1, 1); d.rotation.set(0, 0, 0); d.updateMatrix(); pi.setMatrixAt(i, d.matrix); const w = wp(D_PLOT, x, z); colliders.push({ x: w.x, z: w.z, r: 0.14 }); });
++    p.add(pi);
++    for (const z of [-hz, hz]) for (const y of [0.35, 0.75]) add(p, box(hx * 2, 0.07, 0.06), M.timber, 0, y, z);
++    for (const x of [-hx, hx]) for (const y of [0.35, 0.75]) add(p, box(0.06, 0.07, hz * 2), M.timber, x, y, 0);
++    const sc = new THREE.Group(); sc.position.set(0.3, 0, 0.1);
++    add(sc, box(0.08, 1.6, 0.08), M.timber, 0, 0.8, 0); add(sc, box(1.1, 0.07, 0.07), M.timber, 0, 1.25, 0);
++    add(sc, new THREE.IcosahedronGeometry(0.2, 0), std(0xe8d28a), 0, 1.7, 0); add(sc, new THREE.ConeGeometry(0.32, 0.3, 6), std(0x8a5a3a), 0, 1.95, 0);
++    p.add(sc); const sw = wp(D_PLOT, 0.3, 0.1); colliders.push({ x: sw.x, z: sw.z, r: 0.2 }); }
++
++  // ---------- Tumpukan jerami, tong, peti ----------
++  for (const h of D_HAYSTACKS) {
++    add(g, new THREE.CylinderGeometry(1.05, 1.15, 1.3, 9), M.hay, h.x, 0.65, h.z);
++    add(g, new THREE.ConeGeometry(1.15, 1.1, 9), M.hay, h.x, 1.85, h.z); colliders.push({ x: h.x, z: h.z, r: 1.1 });
++  }
++  for (const b of D_BARRELS) { add(g, new THREE.CylinderGeometry(0.38, 0.34, 0.95, 9), std(0x7a5230), b.x, 0.475, b.z); add(g, new THREE.CylinderGeometry(0.4, 0.4, 0.06, 9), M.iron, b.x, 0.62, b.z); colliders.push({ x: b.x, z: b.z, r: 0.42 }); }
++  D_CRATES.forEach((c, i) => { const m = add(g, box(0.8, 0.8, 0.8), std(0x9a6a3a), c.x, 0.4, c.z); m.rotation.y = i * 0.7 + dusunYaw; colliders.push({ x: c.x, z: c.z, r: 0.5 }); });
++
++  // ---------- Tiang lampu ----------
++  for (const l of D_LAMPS) {
++    add(g, new THREE.CylinderGeometry(0.06, 0.08, 2.6, 6), M.timber, l.x, 1.3, l.z);
++    add(g, box(0.34, 0.42, 0.34), M.lantern, l.x, 2.7, l.z); add(g, new THREE.ConeGeometry(0.3, 0.22, 4), M.iron, l.x, 3.02, l.z);
++    colliders.push({ x: l.x, z: l.z, r: 0.14 });
++  }
++
++  // ---------- Papan nama dusun (di tepi jalan, menghadap barat) ----------
++  { const s = new THREE.Group(); s.position.set(D_SIGN.x, 0, D_SIGN.z); s.rotation.y = D_SIGN.yaw;
++    const t = canvasTex(512, (x, n) => {
++      x.fillStyle = '#8b6338'; x.fillRect(0, 0, n, n);
++      for (let i = 0; i < 700; i++) { x.fillStyle = `rgba(60,35,15,${Math.random() * 0.25})`; x.fillRect(0, Math.random() * n, n, 1 + Math.random() * 3); }
++      x.strokeStyle = '#4a2f18'; x.lineWidth = 18; x.strokeRect(9, 9, n - 18, n - 18);
++      x.fillStyle = '#f3e3bd'; x.textAlign = 'center';
++      x.font = 'bold 92px Georgia'; x.fillText('DUSUN', n / 2, 170);
++      x.font = 'bold 84px Georgia'; x.fillText('ILALANG', n / 2, 290);
++      x.font = 'bold 70px Georgia'; x.fillText('▶', n / 2, 420);
++    });
++    add(s, new THREE.CylinderGeometry(0.08, 0.1, 2.2, 8), M.timber, 0, 1.1, 0);
++    add(s, box(1.9, 1.15, 0.12), new THREE.MeshStandardMaterial({ map: t, roughness: 1 }), 0, 1.95, 0);
++    g.add(s); colliders.push({ x: D_SIGN.x, z: D_SIGN.z, r: 0.25 }); }
++
++  // ---------- Kandang kambing & domba (pagar kayu, pintu di barat, palung air, jerami) + hewan yang berkeliaran ----------
++  const animals = [];
++  { const pen = new THREE.Group(); pen.position.set(D_PEN.x, 0, D_PEN.z); pen.rotation.y = dusunYaw; g.add(pen);
++    const hx = D_PEN.w / 2, hz = D_PEN.d / 2, gate = 1.0;
++    const rail = (x1, z1, x2, z2) => {   // satu sisi pagar: tiang tiap ±1,5 m + dua palang + lingkaran tabrakan (pintu dilewati)
++      const L = Math.hypot(x2 - x1, z2 - z1), n = Math.max(1, Math.round(L / 1.5)), ang = Math.atan2(-(z2 - z1), x2 - x1);
++      for (let i = 0; i <= n; i++) { const x = x1 + (x2 - x1) * i / n, z = z1 + (z2 - z1) * i / n; add(pen, new THREE.CylinderGeometry(0.07, 0.08, 1.1, 6), M.timber, x, 0.55, z); }
++      for (const y of [0.4, 0.82]) { const r = add(pen, box(L, 0.07, 0.06), M.timber, (x1 + x2) / 2, y, (z1 + z2) / 2); r.rotation.y = ang; }
++      for (let i = 0; i <= Math.ceil(L / 0.9); i++) { const t = i / Math.ceil(L / 0.9), w = wp(D_PEN, x1 + (x2 - x1) * t, z1 + (z2 - z1) * t); colliders.push({ x: w.x, z: w.z, r: 0.3 }); }
++    };
++    rail(-hx, -hz, hx, -hz); rail(-hx, hz, hx, hz); rail(hx, -hz, hx, hz);
++    rail(-hx, -hz, -hx, -gate); rail(-hx, gate, -hx, hz);   // sisi barat dengan celah pintu
++    for (const sz of [-1, 1]) add(pen, box(0.16, 1.5, 0.16), M.timber, -hx, 0.75, sz * (gate + 0.05));   // tiang pintu lebih tinggi
++    const trough = add(pen, box(2.0, 0.3, 0.45), M.timber, hx - 1.4, 0.15, -hz + 0.9); add(pen, box(1.8, 0.05, 0.3), M.water, hx - 1.4, 0.3, -hz + 0.9);
++    const tw = wp(D_PEN, hx - 1.4, -hz + 0.9); colliders.push({ x: tw.x, z: tw.z, r: 0.8 });
++    add(pen, new THREE.CylinderGeometry(0.6, 0.75, 0.7, 9), M.hay, hx - 1.2, 0.35, hz - 1.1); add(pen, new THREE.ConeGeometry(0.7, 0.6, 9), M.hay, hx - 1.2, 1.0, hz - 1.1);
++    const hw = wp(D_PEN, hx - 1.2, hz - 1.1); colliders.push({ x: hw.x, z: hw.z, r: 0.8 });
++
++    function makeAnimal(goat, shade) {   // depan = +x lokal
++      const a = new THREE.Group(), fur = std(goat ? [0x8a6a4a, 0xd9cdb5, 0x5b4636][shade % 3] : [0xf2efe6, 0xe6e1d4, 0xcfc8b8][shade % 3]), dark = std(goat ? 0x3a2c22 : 0x3a3434);
++      const body = add(a, new THREE.IcosahedronGeometry(0.4, goat ? 0 : 1), fur, 0, 0.62, 0); body.scale.set(goat ? 1.35 : 1.25, goat ? 0.78 : 0.95, goat ? 0.72 : 0.95);
++      for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(a, new THREE.CylinderGeometry(0.045, 0.05, 0.42, 5), dark, sx * 0.3, 0.21, sz * 0.15);
++      const head = new THREE.Group(); head.position.set(0.48, 0.78, 0); a.add(head);
++      add(head, box(0.3, 0.24, 0.24), goat ? fur : dark, 0.16, 0, 0);
++      for (const sz of [-1, 1]) { const e = add(head, box(0.07, 0.1, 0.16), goat ? fur : dark, 0.06, 0.02, sz * 0.17); e.rotation.x = sz * 0.5;
++        if (goat) { const h = add(head, new THREE.ConeGeometry(0.035, 0.22, 5), std(0xe3dccb), 0.06, 0.2, sz * 0.07); h.rotation.z = 0.5; } }
++      if (goat) add(a, box(0.05, 0.14, 0.05), fur, 0.33, 0.4, 0).position.set(0.78, 0.55, 0);   // jenggot kecil di dagu
++      add(a, new THREE.IcosahedronGeometry(0.1, 0), fur, -0.52, goat ? 0.8 : 0.7, 0);              // ekor
++      return { g: a, head };
++    }
++    const spec = [[0, 0], [0, 1], [0, 2], [0, 0], [1, 0], [1, 2]];   // [kambing?, warna]
++    spec.forEach(([goat, shade], i) => {
++      const m = makeAnimal(!!goat, shade); m.g.scale.setScalar(goat ? 0.95 : 1.05); pen.add(m.g);
++      animals.push({ ...m, ax: 1.6 + (i % 3) * 0.9, az: 1.2 + (i % 2) * 0.9, w1: 0.11 + i * 0.013, w2: 0.09 + i * 0.011, p1: i * 1.9, p2: i * 2.7, cx: ((i % 3) - 1) * 0.6, cz: 0, ph: i * 1.3 });
++    });
++  }
++  const upd = t => {
++    for (const a of animals) {
++      const s1 = a.w1 * t + a.p1, s2 = a.w2 * t + a.p2, x = a.cx + a.ax * Math.sin(s1), z = a.cz + a.az * Math.sin(s2);
++      const vx = a.ax * a.w1 * Math.cos(s1), vz = a.az * a.w2 * Math.cos(s2), graze = 0.5 + 0.5 * Math.sin(t * 0.7 + a.ph);
++      a.g.position.set(x, 0, z); a.g.rotation.y = Math.atan2(-vz, vx);
++      a.head.rotation.z = -0.65 * graze;                 // kepala menunduk saat merumput
++      a.g.position.y = 0.018 * Math.abs(Math.sin(t * 3 + a.ph));   // gerak kecil
++    }
++  };
++  upd(0);
++  return { group: g, update: upd };
++}
+diff --git a/game.js b/game.js
+index 8358f1e..e745d7d 100644
+--- a/game.js
++++ b/game.js
+@@ -4,8 +4,9 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+ import { createWorld, HOLE_R, LIMIT, SPAWN, SKY_COLOR, FOG_DENSITY } from './world.js';
+ import { VILLAGE } from './village-layout.js';
+ import { FOREST, ANCIENT_GATE, CAMP_FIRE, POND, SECRET_GLADE, SECRET_QUEST } from './forest-layout.js';
+-import { CITY, CHURCH, PALACE, cityDist } from './city-layout.js';
++import { CITY, CITY_SPAWN, CHURCH, PALACE, cityDist } from './city-layout.js';
+ import { MEADOW, IMPERIAL, meadowDist } from './meadow-layout.js';
++import { DUSUN } from './meadow-village-layout.js';
+ import { buildSlime, buildGoblin, slimePose, goblinPose, makeBar } from './mobs.js';
+ import { audio } from './audio.js';
+ 
+@@ -1526,19 +1527,22 @@ const F = { t: 0 }, FALL_TOTAL = 1.3;
+ function enterWorld(fromHole = false, note = null) { // mulai game di dataran hijau (fromHole: muncul di tepi lubang setelah keluar dungeon)
+   state = 'world'; arenaG.visible = false; world.group.visible = true; audio.setScene('world');
+   scene.background.set(SKY_COLOR); scene.fog = worldFog;
+-  const sp = fromHole ? { x: 1.6, z: 6.0 } : SPAWN;
++  const inTown = !fromHole && CITY.open;   // mulai permainan: muncul di Kota Arunika (kembali dari dungeon tetap di tepi lubang)
++  const sp = fromHole ? { x: 1.6, z: 6.0 } : inTown ? CITY_SPAWN : SPAWN;
+   player.position.set(sp.x, 0, sp.z); player.rotation.set(0, 0, 0); if (vrm) vrm.scene.rotation.x = 0;
++  if (inTown) world.ensure('kota');   // kota harus sudah selesai dibangun sebelum pemain muncul di dalamnya
+   world.refresh(player.position);   // chunk yang tampil langsung menyesuaikan posisi baru (mis. kembali dari dungeon / mulai ulang)
+-  P.face = fromHole ? Math.atan2(sp.x, sp.z) : Math.atan2(-SPAWN.x, -SPAWN.z); player.rotation.y = P.face; P.v.set(0, 0, 0);
++  P.face = fromHole ? Math.atan2(sp.x, sp.z) : inTown ? CITY_SPAWN.face : Math.atan2(-SPAWN.x, -SPAWN.z); player.rotation.y = P.face; P.v.set(0, 0, 0);
+   camYaw = P.face + Math.PI; cam.position.set(sp.x - Math.sin(P.face) * 9, 4.2, sp.z - Math.cos(P.face) * 9);
+-  $('boss').hidden = true; $('wave').textContent = '🌿 Dataran Hijau'; $('obj').hidden = false;
+-  inVillage = false; inForest = false; inDeepForest = false; nearAncientGate = false; inCity = false; inMeadow = false; nearImperialGate = false; inChurch = false; churchBusy = false; world.church.show(false); inPalace = false; palaceBusy = false; palaceArea = ''; world.palace.show(false); worldFog.density = FOG_DENSITY;
+-  $('msg').textContent = note || (fromHole ? 'Kembali ke Dataran Hijau' : 'Dataran Hijau\nCari lubang menuju dungeon\n🏘️ ' + VILLAGE.name + ' ada di sebelah timur\n🌲 ' + FOREST.name + ' ada di timur desa');
++  $('boss').hidden = true; $('wave').textContent = inTown ? '🏙️ ' + CITY.name : '🌿 Dataran Hijau'; $('obj').hidden = false;
++  inVillage = false; inForest = false; inDeepForest = false; nearAncientGate = false; inCity = false; inMeadow = false; inDusun = false; nearImperialGate = false; inChurch = false; churchBusy = false; world.church.show(false); inPalace = false; palaceBusy = false; palaceArea = ''; world.palace.show(false); worldFog.density = FOG_DENSITY;
++  if (inTown) inCity = true;   // sudah di dalam kota: pesan masuk kota tidak perlu muncul lagi
++  $('msg').textContent = note || (inTown ? '🏙️ ' + CITY.name + '\nJalan utama menuju istana ada di timur' : fromHole ? 'Kembali ke Dataran Hijau' : 'Dataran Hijau\nCari lubang menuju dungeon\n🏘️ ' + VILLAGE.name + ' ada di sebelah timur\n🌲 ' + FOREST.name + ' ada di timur desa');
+   wildT = 1; calmT = 0;
+   setTimeout(() => { if (state === 'world') $('msg').textContent = ''; }, 3500);
+   const f = $('fade'); f.style.transition = 'opacity .9s'; f.style.opacity = 0;
+ }
+-let inVillage = false, inForest = false, inDeepForest = false, nearAncientGate = false, inCity = false, inMeadow = false, nearImperialGate = false, inChurch = false, churchBusy = false, inPalace = false, palaceBusy = false, palaceArea = '';
++let inVillage = false, inForest = false, inDeepForest = false, nearAncientGate = false, inCity = false, inMeadow = false, inDusun = false, nearImperialGate = false, inChurch = false, churchBusy = false, inPalace = false, palaceBusy = false, palaceArea = '';
+ // Masuk / keluar Katedral Arunika: layar memudar, pemain dipindah ke ruang dalam (church.js) atau kembali ke alun-alun
+ function churchGo(inside) {
+   churchBusy = true; stick.x = stick.y = 0; P.v.set(0, 0, 0);
+@@ -1601,6 +1605,9 @@ function worldTick() {
+   const md = meadowDist(px, pz); // masuk / keluar Padang Rumput Arunika (negatif = di dalam padang); cd > 4 = sudah di luar tembok kota
+   if (CITY.open && !inMeadow && md < -10 && cd > 4) { inMeadow = true; say('🌾 ' + MEADOW.name + '\nIkuti jalan tanah ke timur menuju ' + IMPERIAL.name); }
+   else if (inMeadow && (md > -2 || cd < 0)) inMeadow = false;
++  const dd = Math.hypot(px - DUSUN.x, pz - DUSUN.z); // masuk / keluar Dusun Ilalang (desa kecil di padang)
++  if (!inDusun && dd < DUSUN.radius - 4) { inDusun = true; say('🏡 ' + DUSUN.name + '\nDekati warga lalu tekan tombol Mengobrol'); }
++  else if (inDusun && dd > DUSUN.radius + 2) inDusun = false;
+   if (!IMPERIAL.open) { // ujung padang: gerbang perbatasan Kota Kekaisaran masih tertutup
+     const ie = Math.hypot(px - IMPERIAL.x, pz - IMPERIAL.z);
+     if (!nearImperialGate && ie < 30) { nearImperialGate = true; say('🏯 Gerbang Perbatasan\nJalan menuju ' + IMPERIAL.name + ' belum dibuka...'); }
+diff --git a/meadow-village-layout.js b/meadow-village-layout.js
+new file mode 100644
+index 0000000..438501d
+--- /dev/null
++++ b/meadow-village-layout.js
+@@ -0,0 +1,62 @@
++// ============================================================
++//  DUSUN ILALANG — desa kecil di Padang Rumput Arunika (data tata letak, murni angka, tanpa THREE)
++//  Letaknya di sisi selatan jalan tanah padang, ±290 m dari Gerbang Timur kota (antara kolam pertama dan Sungai Bening).
++//  Dipakai oleh meadow.js (membangun dusun + membersihkan rumput), npcs.js (penempatan warga) dan game.js (pesan masuk dusun).
++//
++//  Koordinat lokal V(a, b): a = searah jalan (timur), b = ke selatan (tegak lurus jalan), (0,0) = alun-alun dusun.
++//  Dusun ikut miring mengikuti arah jalan di titik itu, jadi tata letaknya selalu sejajar dengan jalan.
++// ============================================================
++import { roadAt } from './meadow-layout.js';
++import { footprintCircles, doorPoint } from './village-layout.js';
++export { footprintCircles, doorPoint };
++
++const ROAD_S = 292, OFF = 24;                         // titik di jalan tempat jalan masuk bercabang, dan jarak pusat dusun dari jalan
++const rp = roadAt(ROAD_S);
++export const DUSUN = { name: 'Dusun Ilalang', x: rp.x - rp.tz * OFF, z: rp.z + rp.tx * OFF, radius: 16, roadS: ROAD_S, tx: rp.tx, tz: rp.tz };
++export const dusunYaw = -Math.atan2(rp.tz, rp.tx);    // rotation.y yang membuat sumbu-x lokal sejajar jalan
++// titik lokal (a, b) -> dunia
++export const V = (a, b) => ({ x: DUSUN.x + rp.tx * a - rp.tz * b, z: DUSUN.z + rp.tz * a + rp.tx * b });
++const faceCenter = p => Math.atan2(DUSUN.x - p.x, DUSUN.z - p.z);   // sisi depan (+z lokal rumah) menghadap alun-alun
++
++// kind: 'hip' = atap limas, 'gable' = atap pelana, 'barn' = lumbung
++export const D_HOUSES = [
++  { id: 'a', ...V(-8.5, -4.5), w: 4.6, d: 3.8, kind: 'hip',   wall: 0xe3d3ae, roof: 0xa8472e },
++  { id: 'b', ...V(8, -5.5),    w: 4.2, d: 3.6, kind: 'gable', wall: 0xdccaa0, roof: 0xc7a24d },
++  { id: 'c', ...V(10.5, 5),    w: 4.0, d: 4.2, kind: 'hip',   wall: 0xe8dcc0, roof: 0x8a3b2c },
++  { id: 'd', ...V(-9.5, 5.5),  w: 4.8, d: 3.8, kind: 'gable', wall: 0xdccaa0, roof: 0xa8472e },
++  { id: 'e', ...V(0.5, 11.5),  w: 6.2, d: 4.4, kind: 'barn',  wall: 0xa8744a, roof: 0x7b3b2a },
++].map(h => ({ ...h, yaw: faceCenter(h) }));
++
++export const D_PLAZA_R = 4.4;
++export const D_WELL = { ...V(0, 0), r: 1.1 };
++export const D_PLOT = { ...V(-12.8, -0.3), w: 3.6, d: 4.0 };                 // kebun sayur (sejajar jalan)
++export const D_HAYSTACKS = [V(-9.5, 11.5), V(-6.8, 13.4)];
++export const D_BARRELS = [V(4.3, 6.6), V(5.1, 7.4), V(-3.9, -6.8), V(-3.1, -7.4)];
++export const D_CRATES = [V(5.6, -7.9), V(6.5, -8.2)];
++export const D_LAMPS = [V(3.6, -2.6), V(-3.6, 2.8), V(2.4, -12.5)];
++// papan nama di tepi jalan, menghadap barat (ke pengelana yang datang dari kota), panah menunjuk ke selatan = ke kanan
++export const D_SIGN = { ...V(3.5, -21), yaw: Math.atan2(-rp.tx, -rp.tz) };
++// kandang kambing & domba di tepi timur dusun (sejajar jalan). Pintu di sisi barat (menghadap alun-alun).
++export const D_PEN = { ...V(19.5, 1), w: 9, d: 7 };
++// jalan masuk dari jalan padang ke alun-alun (titik lokal)
++export const D_ENTRANCE = [V(0, -22), V(1.3, -17), V(-0.7, -11), V(0, -6.5), V(0, -D_PLAZA_R + 1)];
++
++// titik-titik yang harus bebas rumput / pohon / bunga / batu (dipakai meadow.js sebagai "tempat khusus"): pusat + jalan masuk
++export const D_CLEAR = [{ x: DUSUN.x, z: DUSUN.z, r: DUSUN.radius + 2 }, { x: D_PEN.x, z: D_PEN.z, r: 8 }];
++for (let i = 0; i < D_ENTRANCE.length - 1; i++) {
++  const p = D_ENTRANCE[i], q = D_ENTRANCE[i + 1], n = Math.max(1, Math.ceil(Math.hypot(q.x - p.x, q.z - p.z) / 3));
++  for (let k = 0; k < n; k++) D_CLEAR.push({ x: p.x + (q.x - p.x) * k / n, z: p.z + (q.z - p.z) * k / n, r: 2.2 });
++}
++
++// Warga dusun. tex = warna tekstur Peasant (green / yellow / blue / brown); patrol = titik jalan bolak-balik; scale < 1 = anak kecil
++export const DUSUN_NPCS = [
++  { name: 'Pak Wiryo', role: 'Petani', tex: 'green', ...V(-10.3, -0.3), look: D_PLOT,
++    lines: ['Sayurku tumbuh subur di padang ini. Tanahnya gembur sekali.', 'Kalau mau ke Sungai Bening, ikuti jalan tanah ke timur. Ada jembatan kayu di sana.'] },
++  { name: 'Mbok Sinah', role: 'Warga', tex: 'brown', ...V(2.6, 2.4), look: V(0, 0),
++    lines: ['Sumur dusun ini tak pernah kering, bahkan di musim kemarau.', 'Minumlah dulu, perjalanan ke timur masih jauh.'] },
++  { name: 'Kang Parto', role: 'Penggembala', tex: 'yellow', ...V(2.4, -3.4), look: V(0, 0),
++    patrol: [V(2.4, -3.4), V(3.2, 2.2), V(-2.2, 3.4)],
++    lines: ['Kambing dan dombaku kubiarkan merumput di kandang timur. Embek semua, ribut tiap pagi!', 'Dengar-dengar jalan ke Kota Kekaisaran masih ditutup. Entah kapan dibuka.'] },
++  { name: 'Adi', role: 'Anak Dusun', tex: 'blue', ...V(5.8, 1.6), look: V(10.5, 5), scale: 0.72,
++    lines: ['Kak pendekar! Aku suka berlari di rumput tinggi, tapi ibu melarang jauh-jauh.', 'Di kolam dekat jalan ada banyak katak, lho!'] },
++];
+diff --git a/meadow.js b/meadow.js
+index 34a0408..a005b2e 100644
+--- a/meadow.js
++++ b/meadow.js
+@@ -1,5 +1,7 @@
+ import * as THREE from 'three';
+ import { cityDist } from './city-layout.js';
++import { buildDusun } from './dusun.js';
++import { DUSUN, D_CLEAR } from './meadow-village-layout.js';
+ import { IMPERIAL, PERBATASAN, MEADOW_PTS, MEADOW_LEN, MEADOW_CIRCLES, MEADOW_SEG_X, MEADOW_SPOTS, RIVER, RIVER_PTS, RIVER_BRIDGE, riverEdge, meadowDist, roadAt } from './meadow-layout.js';
+ 
+ // ============================================================
+@@ -32,6 +34,7 @@ export function* buildMeadowGen(o) {
+   // tempat khusus yang bebas dari rumput tinggi / pohon (x, z, r)
+   const features = [];
+   const restP = MEADOW_SPOTS.rest; features.push({ x: restP.x, z: restP.z, r: 10 });
++  for (const f of D_CLEAR) features.push(f);                                          // Dusun Ilalang + jalan masukannya bebas rumput / pohon / bunga / batu
+   const ponds = MEADOW_SPOTS.ponds.map(d => { const p = side(d.s, d.side, d.off); return { ...p, r: d.r }; });
+   for (const p of ponds) features.push({ x: p.x, z: p.z, r: p.r + 4.5 });
+   const nearFeature = (x, z, pad = 0) => { for (const f of features) if (Math.hypot(x - f.x, z - f.z) < f.r + pad) return true; return riverEdge(x, z) < pad + RIVER.mud + 1; };   // sungai + tepi lumpurnya juga tempat khusus
+@@ -416,7 +419,12 @@ export function* buildMeadowGen(o) {
+   }
+   yield;
+ 
+-  return { group, update: animate };   // update(t): animasi aliran sungai (null bila bagian ini tidak memuat sungai)
++  // ---------- 13) Dusun Ilalang: desa kecil di sisi selatan jalan (bagian padang yang memuat pusat dusun) ----------
++  let dusunUpd = null;
++  if (inSeg(DUSUN.x)) { const d = buildDusun({ colliders, ribbon, tex }); group.add(d.group); dusunUpd = d.update; }
++  yield;
++
++  return { group, update: (animate || dusunUpd) ? (t => { if (animate) animate(t); if (dusunUpd) dusunUpd(t); }) : null };   // update(t): animasi aliran sungai (null bila bagian ini tidak memuat sungai)
+ }
+ 
+ export function buildMeadow(opts) { const it = buildMeadowGen(opts); let r; while (!(r = it.next()).done); return r.value; }
+diff --git a/npcs.js b/npcs.js
+index f0315df..1f73645 100644
+--- a/npcs.js
++++ b/npcs.js
+@@ -3,6 +3,7 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+ import { NPCS } from './village-layout.js';
+ import { FOREST_NPC, SECRET_CENTAUR } from './forest-layout.js';
++import { DUSUN_NPCS } from './meadow-village-layout.js';
+ import { CITY, PALACE } from './city-layout.js';
+ import { CITY_NPCS, CITY_NPC_FILES } from './city-npc-layout.js';
+ import { loadCityHumans } from './city-npcs.js';
+@@ -83,10 +84,12 @@ function drawBubble(t, name, text) {
+ // colliders      = daftar collider BERGERAK milik chunk hutan+desa (warga desa, penjaga hutan, centaur)
+ // cityColliders  = daftar collider bergerak milik chunk kota (warga kota)
+ // cityReady()    = true kalau chunk kota sudah selesai dibangun (model warga kota & istana baru mulai dimuat sesudahnya)
+-// group dipasang di chunk hutan+desa; cityGroup (warga kota, Ratu & Putri) dipasang di chunk kota
+-export function createNPCs({ colliders, cityColliders = colliders, rand, palace = null, cityReady = () => true, prewarm = null }) {
++// meadowColliders = daftar collider bergerak milik chunk padang yang memuat Dusun Ilalang (warga dusun)
++// group dipasang di chunk hutan+desa; cityGroup (warga kota, Ratu & Putri) dipasang di chunk kota; meadowGroup (warga Dusun Ilalang) di chunk padang
++export function createNPCs({ colliders, cityColliders = colliders, meadowColliders = colliders, rand, palace = null, cityReady = () => true, prewarm = null }) {
+   const group = new THREE.Group(); group.name = 'npc';
+   const cityGroup = new THREE.Group(); cityGroup.name = 'npc-kota';
++  const meadowGroup = new THREE.Group(); meadowGroup.name = 'npc-dusun';
+   const npcs = [];
+   let target = null; // NPC yang bisa diajak bicara sekarang
+   const closeTalk = n => { n.talking = false; n.talkT = 0; n.bub.spr.visible = false; };
+@@ -108,7 +111,8 @@ export function createNPCs({ colliders, cityColliders = colliders, rand, palace
+     const texCache = {};
+     const tex = k => texCache[k] || (texCache[k] = (() => { const t = new THREE.TextureLoader().load(TEX[k]); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t; })());
+ 
+-    for (const def of [...NPCS, FOREST_NPC]) { // warga desa + penjaga hutan
++    for (const def of [...NPCS, FOREST_NPC, ...DUSUN_NPCS]) { // warga desa + penjaga hutan + warga Dusun Ilalang
++      const inDusun = DUSUN_NPCS.includes(def);
+       const root = new THREE.Group(), holder = new THREE.Group(), model = cloneSkinned(fbx);
+       holder.scale.setScalar(def.scale || 1); holder.rotation.y = FRONT_FLIP;
+       model.scale.multiplyScalar(s); model.position.set(-ctr.x * s, offY, -ctr.z * s);
+@@ -122,11 +126,11 @@ export function createNPCs({ colliders, cityColliders = colliders, rand, palace
+ 
+       const mixer = new THREE.AnimationMixer(model), idle = mixer.clipAction(idleClip), walk = mixer.clipAction(walkClip);
+       idle.play(); idle.time = rand() * idleClip.duration; idle.timeScale = 0.9 + rand() * 0.2; walk.timeScale = 1.0; walk.play(); walk.weight = 0; walk.enabled = true;
+-      const col = { x: def.x, z: def.z, r: 0.45 * (def.scale || 1) + 0.05 }; colliders.push(col);
++      const col = { x: def.x, z: def.z, r: 0.45 * (def.scale || 1) + 0.05 }; (inDusun ? meadowColliders : colliders).push(col);
+       const yaw0 = Math.atan2(def.look.x - def.x, def.look.z - def.z);
+       const meshes = []; model.traverse(o => { if (o.isMesh) meshes.push(o); });
+       const n = { def, root, mixer, idle, walk, meshes, w: 0, tag, bub, col, yaw: yaw0, yaw0, pos: { x: def.x, z: def.z }, pi: 0, dir: 1, wait: 1 + rand() * 3, walking: false, line: 0, lineT: 0, near: false, talking: false, talkT: 0 };
+-      root.rotation.y = yaw0; group.add(root); npcs.push(n);
++      root.rotation.y = yaw0; (inDusun ? meadowGroup : group).add(root); npcs.push(n);
+     }
+   }, undefined, err => console.warn('Model NPC (npc/peasant.fbx) gagal dimuat', err));
+ 
+@@ -212,7 +216,7 @@ export function createNPCs({ colliders, cityColliders = colliders, rand, palace
+   const SHADOW_R = 36;
+ 
+   return {
+-    group, cityGroup,
++    group, cityGroup, meadowGroup,
+     update(dt, t, pp, cam = null) {
+       frameNo++;
+       if (cam) { camMat.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); frustum.setFromProjectionMatrix(camMat); }
+diff --git a/world.js b/world.js
+index ee5bd45..7fd5cad 100644
+--- a/world.js
++++ b/world.js
+@@ -11,6 +11,7 @@ import { buildPalaceGen } from './palace.js';
+ import { CITY_ZONES } from './city-layout.js';
+ import { buildMeadowGen } from './meadow.js';
+ import { MEADOW_CIRCLES, MEADOW_SEG_X } from './meadow-layout.js';
++import { DUSUN } from './meadow-village-layout.js';
+ import { ChunkManager, CHUNK_CFG } from './chunks.js';
+ 
+ // ============================================================
+@@ -121,7 +122,7 @@ export function createWorld({ COARSE = false } = {}) {
+   // ---------- Chunk ----------
+   const wildG = new THREE.Group(); wildG.name = 'chunk-hutan-desa';   // seluruh isi dataran + desa + hutan
+   const cityG = new THREE.Group(); cityG.name = 'chunk-kota';          // kota + interior katedral/istana + warga kota
+-  const wildDyn = [], cityDyn = [];                                     // collider BERGERAK (NPC) per chunk; collider statis ada di `colliders` / chunk.colliders
++  const wildDyn = [], cityDyn = [], dusunDyn = [];                                     // collider BERGERAK (NPC) per chunk; collider statis ada di `colliders` / chunk.colliders
+   const chunks = new ChunkManager(group, { budgetMs: COARSE ? 2.5 : CHUNK_CFG.BUDGET_MS, log: m => console.info('[chunk]', m) });
+   let prewarm = null;                                                   // diisi game.js: kompilasi shader + unggah tekstur sebelum chunk pertama kali tampil
+   // interior katedral & istana dibangun belakangan (di dalam chunk kota); game.js memanggilnya lewat objek perantara ini
+@@ -227,7 +228,7 @@ export function createWorld({ COARSE = false } = {}) {
+   const vrand = mulberry32(31102026); // generator acak terpisah, supaya tata letak pohon & batu dunia lama tidak berubah
+   const village = buildVillage({ colliders, rand: vrand }); wildG.add(village.group);
+   // warga desa/hutan di chunk hutan-desa; warga kota + Ratu & Putri di chunk kota. Model besar mereka baru dimuat SETELAH chunk kota selesai dibangun.
+-  const npcs = createNPCs({ colliders: wildDyn, cityColliders: cityDyn, rand: vrand, palace, cityReady: () => cityChunk.state === 'ready', prewarm: g => { if (prewarm) prewarm(g); } });
++  const npcs = createNPCs({ colliders: wildDyn, cityColliders: cityDyn, meadowColliders: dusunDyn, rand: vrand, palace, cityReady: () => cityChunk.state === 'ready', prewarm: g => { if (prewarm) prewarm(g); } });
+   wildG.add(npcs.group); cityG.add(npcs.cityGroup);
+ 
+   // ---------- Lubang menuju dungeon ----------
+@@ -465,10 +466,12 @@ export function createWorld({ COARSE = false } = {}) {
+   // Tiap bagian punya grup, collider & jatah bangun sendiri. Mulai dibangun saat pemain < 240 m dari tepinya (bagian pertama sudah mulai dari dalam hutan,
+   // bersamaan dengan kota), jadi saat pemain keluar dari Gerbang Timur padang sudah siap.
+   const meadowChunks = Array.from({ length: MEADOW_SEG_X.length - 1 }, (_, i) => {
+-    const g = new THREE.Group(); g.name = 'chunk-padang-' + (i + 1); let flow = null;   // flow(t): animasi aliran Sungai Bening (hanya ada di bagian yang memuat sungai)
++    const g = new THREE.Group(); g.name = 'chunk-padang-' + (i + 1); let flow = null;
++    const hasDusun = DUSUN.x >= MEADOW_SEG_X[i] && DUSUN.x < MEADOW_SEG_X[i + 1];   // bagian padang yang memuat Dusun Ilalang: warganya (NPC) ikut di chunk ini
++    if (hasDusun) g.add(npcs.meadowGroup);   // flow(t): animasi aliran Sungai Bening (hanya ada di bagian yang memuat sungai)
+     const circles = MEADOW_CIRCLES.filter(c => c.x + c.r > MEADOW_SEG_X[i] - 30 && c.x - c.r < MEADOW_SEG_X[i + 1] + 30).map(c => ({ ...c, r: c.r + 8 }));
+     return chunks.add({
+-      id: 'padang-' + (i + 1), name: 'Padang Rumput ' + (i + 1), group: g, loadR: 240, circles,
++      id: 'padang-' + (i + 1), name: 'Padang Rumput ' + (i + 1), group: g, loadR: 240, circles, dyn: hasDusun ? dusunDyn : [],
+       update(dt, t) { if (flow) flow(t); },   // dipanggil ChunkManager hanya saat bagian ini tampil
+       *build(c) {
+         const gen = buildMeadowGen({

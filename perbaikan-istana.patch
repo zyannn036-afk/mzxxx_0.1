@@ -1,0 +1,215 @@
+--- a/palace.js	2026-11-01 11:11:53.740211421 +0000
++++ "b/palace.js"	2026-11-01 11:18:28.575293666 +0000
+@@ -1,7 +1,7 @@
+ import * as THREE from 'three';
+ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+ import { PALACE } from './city-layout.js';
+-import { HW, HL, F2, H1, ROOF, T, DOOR_H, DH, STAIR, DAIS, THRONE, SIDE_ROOMS, WALLS, solids, WALL_RECTS, groundY, levelOf, ceilAt, areaAt, pushCircle, pushRect, rayRect } from './palace-layout.js';
++import { HW, HL, F2, H1, ROOF, T, DOOR_H, DH, MAIN_DOOR, STAIR, DAIS, THRONE, SIDE_ROOMS, WALLS, solids, nearDoor, WALL_RECTS, groundY, levelOf, ceilAt, areaAt, pushCircle, pushRect, rayRect } from './palace-layout.js';
+ 
+ // ============================================================
+ //  Interior Istana Arunika (2 lantai). Dibangun sekali di titik jauh (PALACE.x, PALACE.z), disembunyikan sampai pemain masuk (show(true)).
+@@ -65,18 +65,40 @@
+     }
+   }
+   function doorFrame(w, c, dw, dh, y0) {
+-    const FR = w.k === 'out' ? GOLD : WOOD_D;
+-    if (w.axis === 'H') { for (const sd of [-1, 1]) boxB(0.24, dh, T + 0.14, c + sd * (dw / 2 + 0.12), y0, w.at, FR); boxB(dw + 0.48, 0.28, T + 0.14, c, y0 + dh, w.at, FR); }
+-    else { for (const sd of [-1, 1]) boxB(T + 0.14, dh, 0.24, w.at, y0, c + sd * (dw / 2 + 0.12), FR); boxB(T + 0.14, 0.28, dw + 0.48, w.at, y0 + dh, c, FR); }
++    // bingkai menjorok IN = 3 cm ke dalam bukaan (sisi dalam tiang & bawah lintel): kalau sebidang dengan sisi dinding (jamb) kedua permukaan beradu kedalaman (z-fighting) dan berkedip.
++    const FR = w.k === 'out' ? GOLD : WOOD_D, IN = 0.03, pw = 0.24 + IN, po = dw / 2 + 0.12 - IN / 2, lh = 0.28 + IN;
++    if (w.axis === 'H') { for (const sd of [-1, 1]) boxB(pw, dh, T + 0.14, c + sd * po, y0, w.at, FR); boxB(dw + 0.48, lh, T + 0.14, c, y0 + dh - IN, w.at, FR); }
++    else { for (const sd of [-1, 1]) boxB(T + 0.14, dh, pw, w.at, y0, c + sd * po, FR); boxB(T + 0.14, lh, dw + 0.48, w.at, y0 + dh - IN, c, FR); }
+   }
+   for (const w of WALLS) {
+     const col = w.k === 'out' ? WALL_OUT : WALLC;
+     for (const lvl of [1, 2]) {
+       const y0 = lvl === 1 ? 0 : F2, y1 = lvl === 1 ? H1 : ROOF;
+-      for (const [s0, s1] of solids(w, lvl)) { seg(w, s0, s1, y0, y1, col); wainscot(w, s0, s1, y0); }
++      for (const [s0, s1] of solids(w, lvl)) {
++        seg(w, s0, s1, y0, y1, col);
++        // ujung dinding diperpanjang T/2 supaya sudut menutup; panel kayu cukup sampai permukaan dinding yang memotong (bukan sampai ujungnya, yang sebidang dengan permukaan itu)
++        wainscot(w, Math.abs(s0 - (w.a - T / 2)) < 1e-6 ? s0 + T : s0, Math.abs(s1 - (w.b + T / 2)) < 1e-6 ? s1 - T : s1, y0);
++      }
+       for (const [c, dw, dh = DOOR_H] of (lvl === 1 ? w.d1 : w.d2) || []) { seg(w, c - dw / 2, c + dw / 2, y0 + dh, y1, col); doorFrame(w, c, dw, dh, y0); }
+     }
+-    seg(w, w.a - T / 2, w.b + T / 2, H1, F2, TRIM);                       // tepi pelat lantai
++    for (const [t0, t1] of w.tg ? [[w.a - T / 2, w.tg[0]], [w.tg[1], w.b + T / 2]] : [[w.a - T / 2, w.b + T / 2]]) seg(w, t0, t1, H1, F2, TRIM);   // tepi pelat lantai (kosong di lubang tangga)
++  }
++  // pintu utama: daun ganda kayu tertutup di dalam bukaan, supaya dunia luar tidak terlihat dari aula masuk (tabrakannya: palace-layout.js)
++  {
++    const dw = MAIN_DOOR.w, dh = MAIN_DOOR.h, zc = HL - T / 2 + 0.06, lw = dw / 2 + 0.1;        // daun: tebal 0.2, muka depan di z = HL - T/2 - 0.04 (4 cm di depan permukaan dinding)
++    const zf = zc - 0.1;
++    for (const sd of [-1, 1]) {
++      const x = sd * lw / 2;                                                                       // daun masuk 10 cm ke dalam tiang bingkai supaya tak ada celah
++      boxB(lw, dh + 0.02, 0.2, MAIN_DOOR.x + x, 0, zc, WOOD);
++      for (const yb of [0.25, 2.4]) boxB(1.6, 1.95, 0.04, MAIN_DOOR.x + sd * 1.03, yb, zf - 0.02, WOOD_L);            // panel timbul
++      for (const yb of [0.9, 2.3, 3.7]) {                                                          // pita besi + paku emas
++        boxB(2.0, 0.14, 0.05, MAIN_DOOR.x + sd * 1.03, yb - 0.07, zf - 0.025, IRON);
++        for (const u of [0.35, 0.85, 1.35, 1.85]) ball(0.06, MAIN_DOOR.x + sd * u, yb, zf - 0.06, GOLD, 6, 4);
++      }
++      put(solid, new THREE.TorusGeometry(0.2, 0.035, 6, 14), GOLD, MAIN_DOOR.x + sd * 0.55, 2.1, zf - 0.09);      // gelang pegangan
++      ball(0.09, MAIN_DOOR.x + sd * 0.55, 2.1, zf - 0.06, GOLD, 6, 5);
++    }
++    boxB(0.08, dh, 0.06, MAIN_DOOR.x, 0, zf - 0.03, IRON);                                          // sambungan kedua daun
+   }
+   // jendela (kaca patri bercahaya) di dinding luar: normal = arah ke dalam
+   function windowGlass(x, y, z, ry, ww, wh, col) {
+@@ -149,7 +171,7 @@
+     rectC(x, z, 0.95, 0.6, ry, lvl);
+   }
+   function barrel(x, y, z, lvl) { cylB(0.34, 0.34, 0.9, x, y, z, WOOD, 10); for (const h of [0.2, 0.7]) cylB(0.37, 0.37, 0.05, x, y + h, z, IRON, 10); circC(x, z, 0.42, lvl); }
+-  function crate(x, y, z, ry, lvl, s = 0.8) { at(x, y, z, ry, () => { boxB(s, s, s, 0, 0, 0, WOOD_L); for (const sx of [-1, 1]) boxB(0.06, s + 0.02, s + 0.02, sx * (s / 2 - 0.03), 0, 0, WOOD_D); }); rectC(x, z, s, s, ry, lvl); }
++  function crate(x, y, z, ry, lvl, s = 0.8) { at(x, y, z, ry, () => { boxB(s, s, s, 0, 0, 0, WOOD_L); for (const sx of [-1, 1]) boxB(0.06, s + 0.02, s + 0.02, sx * (s / 2 - 0.02), -0.01, 0, WOOD_D); }); rectC(x, z, s, s, ry, lvl); }
+   function sack(x, y, z, lvl) { cylB(0.3, 0.22, 0.55, x, y, z, 0xcbb98c, 8); coneB(0.2, 0.2, x, y + 0.55, z, 0xcbb98c, 8); circC(x, z, 0.32, lvl); }
+   function armor(x, y, z, ry, lvl, s = 1, spear = true) {
+     at(x, y, z, ry, () => {
+@@ -210,7 +232,7 @@
+     for (const sx of [-1, 1]) boxB(0.2, 0.06, DAIS.z1 - DAIS.z0, sx * (DAIS.x1 + 0.1), F2 + DH, (DAIS.z0 + DAIS.z1) / 2, GOLD);
+     at(x, y, z, 0, () => {
+       boxB(2.2, 0.35, 1.6, 0, 0, 0, GOLD); boxB(1.6, 0.5, 1.3, 0, 0.35, 0.1, RED); boxB(1.9, 0.12, 1.4, 0, 0.85, 0.1, GOLD);
+-      boxB(2.2, 3.4, 0.35, 0, 0.35, -0.7, GOLD); boxB(1.8, 3.0, 0.38, 0, 0.55, -0.68, RED); box(2.4, 0.2, 0.4, 0, 3.8, -0.7, GOLD);
++      boxB(2.2, 3.4, 0.35, 0, 0.35, -0.7, GOLD); boxB(1.8, 3.0, 0.38, 0, 0.55, -0.66, RED); box(2.4, 0.2, 0.4, 0, 3.8, -0.7, GOLD);
+       for (const k of [-1, 0, 1]) coneB(0.2, 0.7 + (k === 0 ? 0.35 : 0), k * 0.75, 3.9, -0.7, GOLD, 5);
+       ball(0.16, 0, 4.75, -0.7, 0xd84a3a, 8, 6);
+       for (const sx of [-1, 1]) { boxB(0.25, 0.7, 1.3, sx * 1.0, 0.35, 0.1, GOLD); ball(0.14, sx * 1.0, 1.1, 0.7, GOLD, 7, 5); boxB(0.3, 3.4, 0.3, sx * 1.15, 0, -0.7, GOLD); ball(0.2, sx * 1.15, 3.55, -0.7, 0xf2c23a, 7, 5); }
+@@ -232,7 +254,7 @@
+     for (const s of [-1, 1]) {
+       const rx = s * (STAIR.x + 0.12);
+       box(0.16, 0.14, len, rx, F2 / 2 + 1.05, (STAIR.zBot + STAIR.zTop) / 2, WOOD_D, ang, 0, 0);
+-      for (let k = 0; k <= 10; k++) { const z = STAIR.zBot - (STAIR.zBot - STAIR.zTop) * k / 10, y = F2 * (STAIR.zBot - z) / (STAIR.zBot - STAIR.zTop); boxB(0.1, 1.0, 0.1, rx, y, z, WOOD); }
++      for (let k = 1; k <= 9; k++) { const z = STAIR.zBot - (STAIR.zBot - STAIR.zTop) * k / 10, y = F2 * (STAIR.zBot - z) / (STAIR.zBot - STAIR.zTop); boxB(0.1, 1.0, 0.1, rx, y, z, WOOD); }
+       boxB(0.3, 1.5, 0.3, rx, 0, STAIR.zBot + 0.1, WOOD_D); ball(0.16, rx, 1.65, STAIR.zBot + 0.1, GOLD, 7, 5);
+       boxB(0.3, 1.5, 0.3, rx, F2, STAIR.zTop - 0.05, WOOD_D); ball(0.16, rx, F2 + 1.65, STAIR.zTop - 0.05, GOLD, 7, 5);
+     }
+@@ -247,7 +269,7 @@
+   for (const s of [-1, 1]) {
+     armor(s * 6.6, 0, 21.6, s > 0 ? Math.PI * 0.85 : -Math.PI * 0.85, 1, 1.35); armor(s * 6.9, 0, 9, s > 0 ? -HP : HP, 1, 1.35);
+     pot(s * 6.9, 0, 14.2, 1); pot(s * 4.4, 0, 22, 1);
+-    banner(s * 7.62, 4.4, 14, s > 0 ? -HP : HP, 1.5, 3.4, RED); banner(s * 7.62, F2 + 4.2, 12, s > 0 ? -HP : HP, 1.7, 4.0, BLUE); banner(s * 7.62, F2 + 4.2, 19, s > 0 ? -HP : HP, 1.7, 4.0, BLUE);
++    banner(s * 7.62, 4.2, 14, s > 0 ? -HP : HP, 1.5, 3.0, RED);   // tidak menembus pelat lantai 2 (y = 6) banner(s * 7.62, F2 + 4.2, 12, s > 0 ? -HP : HP, 1.7, 4.0, BLUE); banner(s * 7.62, F2 + 4.2, 19, s > 0 ? -HP : HP, 1.7, 4.0, BLUE);
+     torch(s * 7.62, 2.0, 7, s > 0 ? -HP : HP); torch(s * 7.62, 2.0, 21, s > 0 ? -HP : HP); torch(s * 7.62, F2 + 2.4, 9, s > 0 ? -HP : HP); torch(s * 7.62, F2 + 2.4, 17, s > 0 ? -HP : HP);
+   }
+   rug(0, 0.02, 20.2, 0, 3.4, 5.4, RED); painting(0, 3.6, 5.34, 0, 3.6, 2.2, 0x4a6a8a);
+@@ -287,8 +309,12 @@
+     for (const s of [-1, 1]) {
+       const cx = s * 10, ins = s > 0 ? -HP : HP, outs = -ins;   // ins: menghadap ke dalam lorong dari dinding sisi aula (x = ±8) -> tidak dipakai langsung
+       rug(cx, y + 0.02, 0, 0, 1.8, 43.2, lvl === 1 ? RED : PURPLE);
+-      for (let z = -19; z <= 19; z += 6.5) { torch(s * 11.66, y + 2.5, z, s > 0 ? HP : -HP); torch(s * 8.34, y + 2.5, z + 3.2, s > 0 ? -HP : HP); }
+-      for (const z of [-20, -11, 0.5, 11, 20]) painting(s * 11.67, y + 3.2, z, s > 0 ? HP : -HP, 1.4, 1.1, [0x4a6a8a, 0x6a4a3a, 0x3a5a4a, 0x7a5a2a, 0x5a4a6a][(rnd() * 5) | 0]);
++      const wSide = WALLS.find(w => w.axis === 'V' && w.at === s * 12), wHall = WALLS.find(w => w.axis === 'V' && w.at === s * 8);   // dinding ke ruang samping & ke aula
++      for (let z = -19; z <= 19; z += 6.5) {
++        if (!nearDoor(wSide, z, lvl, 0.2)) torch(s * 11.66, y + 2.5, z, s > 0 ? HP : -HP);
++        if (!nearDoor(wHall, z + 3.2, lvl, 0.2)) torch(s * 8.34, y + 2.5, z + 3.2, s > 0 ? -HP : HP);
++      }
++      for (const z of [-13.75, -3.5, 8.75, 19.9]) painting(s * 11.67, y + 3.2, z, s > 0 ? HP : -HP, 1.4, 1.1, [0x4a6a8a, 0x6a4a3a, 0x3a5a4a, 0x7a5a2a, 0x5a4a6a][(rnd() * 5) | 0]);   // di antara pintu ruang samping (z pintu: 15.5, 2, -9, -18.5)
+       armor(s * 11.2, y, -21.8, s > 0 ? Math.PI : Math.PI, lvl, 1.05); armor(s * 8.8, y, -21.8, Math.PI, lvl, 1.05);
+       if (lvl === 2) { pot(s * 11.2, y, 21.7, 2); pot(s * 8.8, y, 21.7, 2); pot(s * 8.9, y, 5.9, 2); pot(s * 11.1, y, 5.9, 2); }
+       else { pot(s * 11.2, y, 21.7, 1); chest(s * 8.9, y, 14.2, s > 0 ? -HP : HP, 1); }
+@@ -306,7 +332,8 @@
+     const key = lvl + (s > 0 ? 'E' : 'W') + idx;
+     const rugR = (c, w = 3, d = 3.6) => rug(X(3.6), y + 0.02, cz, s * HP, w, d, c);
+     const lamp = (u, v) => { torch(s * (HW - T / 2 - 0.02), y + 2.4, Z(v), -s * HP); };
+-    for (const v of [-depth / 4, depth / 4]) lamp(0, v);
++    // ruang panjang punya 2 jendela di z = pusat ± 3,4: obor dipasang di ujung dinding (di luar bingkai jendela), bukan di atas kaca
++    for (const v of depth > 11 ? [-(depth / 2 - 1), depth / 2 - 1] : [-depth / 4, depth / 4]) lamp(0, v);
+     switch (key) {
+       case '1E0': // Dapur
+         hearth(X(7.0), y, Z(-4.8), toDoor, 1, 2.8); cauldron(X(5.6), y, Z(-4.8), 1); hearth(X(7.0), y, Z(4.8), toDoor, 1, 2.8);
+@@ -334,7 +361,7 @@
+         barrel(X(2.2), y, Z(-3.6), 1); barrel(X(3.0), y, Z(-3.9), 1); barrel(X(2.6), y, Z(-3.1), 1); barrel(X(2.4), y, Z(3.6), 1);
+         break;
+       case '1W0': // Perpustakaan
+-        for (const v of [-5.2, -2.6, 0, 2.6, 5.2]) if (Math.abs(v) > 1.6) bookshelf(X(7.15), y, Z(v), toDoor, 1);
++        for (const v of [-5.7, -1.25, 1.25, 5.7]) bookshelf(X(7.15), y, Z(v), toDoor, 1);   // di antara & di luar kedua jendela (z ± 3,4)
+         bookshelf(X(2.2), y, Z(-6.9), 0 * s, 1, 3.0, 2.9); bookshelf(X(5.2), y, Z(6.9), Math.PI, 1, 3.0, 2.9); bookshelf(X(2.2), y, Z(6.9), Math.PI, 1, 3.0, 2.9);
+         desk(X(3.8), y, Z(-2.4), HP, 1); chair(X(2.7), y, Z(-2.4), -toDoor); desk(X(3.8), y, Z(3), HP, 1); chair(X(2.7), y, Z(3), -toDoor);
+         rugR(PURPLE, 3, 3.4);
+@@ -346,7 +373,7 @@
+         break;
+       case '1W2': // Ruang Tamu
+         rugR(RED, 4, 3.8); sofa(X(6.4), y, Z(0), toDoor, 1); sofa(X(3.6), y, Z(-3.2), HP * s * -1 + Math.PI, 1, GREEN); sofa(X(3.6), y, Z(3.2), HP * s * -1, 1, GREEN);
+-        table(X(3.7), y, Z(0), HP, 1.6, 0.9, 1, 0.5); candelabra(X(1.0), y, Z(-3.6), 1); candelabra(X(1.0), y, Z(3.6), 1); painting(X(7.3), y + 2.6, Z(0), toDoor, 2.4, 1.6, 0x7a5a3a);
++        table(X(3.7), y, Z(0), HP, 1.6, 0.9, 1, 0.5); candelabra(X(1.0), y, Z(-3.6), 1); candelabra(X(1.0), y, Z(3.6), 1); painting(X(7.3), y + 2.6, Z(-3.1), toDoor, 1.3, 1.6, 0x7a5a3a); painting(X(7.3), y + 2.6, Z(3.1), toDoor, 1.3, 1.6, 0x5a6a4a);
+         break;
+       case '1W3': // Ruang Harta
+         for (const [i, v] of [-2.6, -0.4, 1.8, 3.5].entries()) chest(X(6.6 - (i % 2) * 1.6), y, Z(v - (i % 2) * 0.5), toDoor, 1, true);
+@@ -356,14 +383,14 @@
+         break;
+       case '2E0': // Kamar Putri
+         bed(X(6.6), y, Z(-2.2), toDoor, 2, true, 0xd87a9a); rugR(0xb85a8a, 3.4, 4); wardrobe(X(1.2), y, Z(-5.8), toWall, 2); vanity(X(6.9), y, Z(3.6), toDoor, 2); stool(X(5.8), y, Z(3.6));
+-        bookshelf(X(2.6), y, Z(5.9), Math.PI, 2, 2.2, 2.4); sofa(X(3.6), y, Z(2.9), 0 * s - HP * s, 2, PURPLE); table(X(2.3), y, Z(-3.6), 0, 1.0, 0.8, 2, 0.7); painting(X(7.3), y + 3.0, Z(5.0), toDoor, 1.4, 1.8, 0x9a6a8a);
++        bookshelf(X(2.6), y, Z(5.9), Math.PI, 2, 2.2, 2.4); sofa(X(3.6), y, Z(2.9), 0 * s - HP * s, 2, PURPLE); table(X(2.3), y, Z(-3.6), 0, 1.0, 0.8, 2, 0.7); painting(X(7.3), y + 3.0, Z(5.7), toDoor, 1.4, 1.8, 0x9a6a8a);
+         break;
+       case '2E1': // Ruang Musik
+         piano(X(5.4), y, Z(-2.0), toDoor + Math.PI * 0, 2); stool(X(3.7), y, Z(-2.0)); rugR(BLUE, 4, 4.4); for (const v of [1.6, 2.8, 4]) chair(X(5.5), y, Z(v), toDoor); candelabra(X(6.9), y, Z(-4.4), 2); candelabra(X(6.9), y, Z(4.4), 2);
+-        painting(X(7.3), y + 2.8, Z(2.8), toDoor, 2.0, 1.4, 0x5a6a8a);
++        painting(X(7.3), y + 2.8, Z(0.0), toDoor, 2.0, 1.4, 0x5a6a8a);
+         break;
+       case '2E2': // Ruang Rapat
+-        roundTable(X(4.0), y, Z(0), 1.7, 2, 8); painting(X(7.3), y + 2.8, Z(0), toDoor, 2.8, 1.8, 0x4a5a3a); banner(X(7.35), y + 3.4, Z(-3), toDoor, 1.1, 2.6, RED); banner(X(7.35), y + 3.4, Z(3), toDoor, 1.1, 2.6, RED);
++        roundTable(X(4.0), y, Z(0), 1.7, 2, 8); painting(X(7.3), y + 5.5, Z(0), toDoor, 2.8, 1.4, 0x4a5a3a); banner(X(7.35), y + 3.4, Z(-3), toDoor, 1.1, 2.6, RED); banner(X(7.35), y + 3.4, Z(3), toDoor, 1.1, 2.6, RED);
+         break;
+       case '2E3': // Ruang Pakaian
+         for (const v of [-3.0, -1.2, 0.6, 2.4]) wardrobe(X(7.0), y, Z(v), toDoor, 2); vanity(X(1.4), y, Z(-3.4), toWall, 2); chest(X(1.2), y, Z(3.0), toWall, 2); sofa(X(3.6), y, Z(0), HP * s * -1, 2, PURPLE);
+@@ -378,7 +405,7 @@
+         break;
+       case '2W2': // Ruang Tamu Kerajaan
+         rugR(RED, 4.4, 4.4); sofa(X(6.4), y, Z(-1.4), toDoor, 2, PURPLE); sofa(X(3.6), y, Z(2.8), HP * s * -1 + Math.PI, 2, BLUE); sofa(X(3.6), y, Z(-2.8), HP * s * -1, 2, BLUE); table(X(3.7), y, Z(0), HP, 1.4, 0.9, 2, 0.5, WOOD);
+-        armor(X(7.0), y, Z(4.0), toDoor, 2); armor(X(7.0), y, Z(-4.0), toDoor, 2); painting(X(7.3), y + 2.8, Z(0.6), toDoor, 2.4, 1.6, 0x6a8a5a);
++        armor(X(7.0), y, Z(4.0), toDoor, 2); armor(X(7.0), y, Z(-4.0), toDoor, 2); painting(X(7.3), y + 5.5, Z(-0.6), toDoor, 2.4, 1.4, 0x6a8a5a);
+         break;
+       case '2W3': // Ruang Juru Tulis
+         desk(X(5.8), y, Z(-2.0), HP, 2); chair(X(4.7), y, Z(-2.0), -toDoor); desk(X(5.8), y, Z(2.2), HP, 2); chair(X(4.7), y, Z(2.2), -toDoor);
+--- a/palace-layout.js	2026-11-01 11:11:53.740170411 +0000
++++ "b/palace-layout.js"	2026-11-01 11:16:37.906061231 +0000
+@@ -18,6 +18,7 @@
+ export const F2 = 6.0, SLAB = 0.4, H1 = F2 - SLAB, ROOF = 13;   // lantai 2, tebal pelat, tinggi langit-langit lantai 1, tinggi atap
+ export const T = 0.6;                          // tebal dinding
+ export const DOOR_H = 3.9, DOOR_W = 2.8;       // pintu biasa
++export const MAIN_DOOR = { x: 0, w: 4.2, h: 4.6 };   // pintu utama (daun ganda, tertutup): menutup bukaan dinding selatan supaya dunia luar tidak terlihat
+ export const DH = 0.2;                         // tinggi panggung singgasana
+ export const STAIR = { x: 3, zTop: 5, zBot: 17, n: 30 };         // tangga besar (lebar 6)
+ export const VOID = { x0: -8, x1: 8, z0: 5, z1: HL };            // aula masuk: kosong setinggi dua lantai
+@@ -31,17 +32,15 @@
+ // dinding: axis 'H' = memanjang sepanjang x di z = at; 'V' = memanjang sepanjang z di x = at. d1/d2 = pintu di lantai 1 / 2: [pusat, lebar, tinggi?]
+ export const WALLS = [
+   { axis: 'H', at: -HL, a: -HW, b: HW, k: 'out' },
+-  { axis: 'H', at: HL, a: -HW, b: HW, k: 'out', d1: [[0, 4.2, 4.6]] },                    // pintu utama (lantai 1)
++  { axis: 'H', at: HL, a: -HW, b: HW, k: 'out', d1: [[MAIN_DOOR.x, MAIN_DOOR.w, MAIN_DOOR.h]] },   // pintu utama (lantai 1)
+   { axis: 'V', at: -HW, a: -HL, b: HL, k: 'out' },
+   { axis: 'V', at: HW, a: -HL, b: HL, k: 'out' },
+-  // aula masuk <-> lorong (lantai 1 saja; di lantai 2 sisi aula ini tertutup)
+-  { axis: 'V', at: -8, a: 5, b: HL, d1: [[19, 3.2]] },
+-  { axis: 'V', at: 8, a: 5, b: HL, d1: [[19, 3.2]] },
+-  // aula perjamuan (lantai 1) / balairung (lantai 2) <-> lorong
+-  { axis: 'V', at: -8, a: -HL, b: 5, d1: [[-15, 3], [-3, 3]], d2: [[-7, 3.2, 4.4]] },
+-  { axis: 'V', at: 8, a: -HL, b: 5, d1: [[-15, 3], [-3, 3]], d2: [[-7, 3.2, 4.4]] },
+-  // balairung: dinding selatan dengan bukaan lebar untuk tangga (lantai 2)
+-  { axis: 'H', at: 5, a: -8, b: 8, d2: [[0, 6.4, 5.4]] },
++  // dinding aula <-> lorong, satu dinding utuh per sisi. Bagian selatan (z > 5) = aula masuk (pintu lantai 1 saja; di lantai 2 sisi ini tertutup),
++  // bagian utara (z < 5) = aula perjamuan (lantai 1) / balairung (lantai 2).
++  { axis: 'V', at: -8, a: -HL, b: HL, d1: [[-15, 3], [-3, 3], [19, 3.2]], d2: [[-7, 3.2, 4.4]] },
++  { axis: 'V', at: 8, a: -HL, b: HL, d1: [[-15, 3], [-3, 3], [19, 3.2]], d2: [[-7, 3.2, 4.4]] },
++  // balairung: dinding selatan dengan bukaan lebar untuk tangga (lantai 2). tg = bagian pelat lantai (trim) yang dilewati tangga: dikosongkan supaya tidak berimpit dengan anak tangga teratas
++  { axis: 'H', at: 5, a: -8, b: 8, d2: [[0, 6.4, 5.4]], tg: [-STAIR.x - 0.3, STAIR.x + 0.3] },
+   // lorong <-> ruang samping
+   { axis: 'V', at: -12, a: -HL, b: HL, d1: RD, d2: RD },
+   { axis: 'V', at: 12, a: -HL, b: HL, d1: RD, d2: RD },
+@@ -68,6 +67,7 @@
+ export const WALL_RECTS = [];
+ for (const w of WALLS) for (const lvl of [1, 2]) for (const [s0, s1] of solids(w, lvl)) WALL_RECTS.push({ ...wallRect(w, s0, s1), lvl });
+ WALL_RECTS.push(...RAILS);
++WALL_RECTS.push({ x0: MAIN_DOOR.x - MAIN_DOOR.w / 2, x1: MAIN_DOOR.x + MAIN_DOOR.w / 2, z0: HL - T / 2, z1: HL + T / 2, lvl: 1 });   // daun pintu utama (tertutup): menahan pemain & kamera
+ 
+ // ---------- Lantai & tinggi ----------
+ export const levelOf = y => (y > 2.9 ? 2 : 1);
+@@ -127,3 +127,8 @@
+   }
+   return t0 > 0 ? t0 : 1;   // t0 = 0 -> titik awal sudah di dalam kotak yang diperlebar: abaikan (jangan menjepit kamera ke pemain)
+ }
++
++// apakah titik (pos sepanjang sumbu dinding) jatuh di bukaan pintu / bingkainya pada dinding w untuk lantai lvl? pad = jarak aman tambahan
++export function nearDoor(w, pos, lvl, pad = 0.5) {
++  return ((lvl === 1 ? w.d1 : w.d2) || []).some(d => Math.abs(pos - d[0]) < d[1] / 2 + 0.24 + pad);
++}

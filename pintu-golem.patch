@@ -1,0 +1,411 @@
+--- a/game.js
++++ b/game.js
+@@ -9,6 +9,8 @@
+ import { DUSUN } from './meadow-village-layout.js';
+ import { buildSlime, buildGoblin, slimePose, goblinPose, makeBar } from './mobs.js';
+ import { audio } from './audio.js';
++import { RUINS_DOOR, DOOR_FX, GOLEM, GOLEM_WAVES } from './golem-layout.js';
++import { buildGolem, poseGolem, newGolemPose, ATTACK } from './golem.js';
+ 
+ const $ = id => document.getElementById(id);
+ const R = 18; // radius arena
+@@ -419,19 +421,20 @@
+ }
+ function dyingTick(e) { // musuh bergetar & bersinar sebelum hancur
+   const p = 1 - slow.t / SLOW_TOTAL;
++  if (e.golem) { e.pose.at = null; e.pose.wk = 0; e.pose.die = p; poseGolem(e.rig, e.pose); }   // golem runtuh perlahan
+   e.mat.emissive.setHex(Math.sin(p * 70) > 0 ? 0xffffff : 0x802010);
+   e.g.scale.setScalar(1 + Math.sin(p * 110) * 0.05 * (1 + p));
+-  if (Math.random() < 0.3) burst(e.g.position.clone().setY(rnd(0.5, e.dragon ? 7 : 2.2)), 0xffd060, 4, 3);
++  if (Math.random() < 0.3) burst(e.g.position.clone().setY(rnd(0.5, e.dragon ? 7 : e.golem ? 6 : 2.2)), 0xffd060, 4, 3);
+   if (p >= SLOW_DEATH) { // hancur
+-    burst(e.g.position.clone().setY(e.dragon ? 3 : 1), 0xffffff, 45, 10); burst(e.g.position.clone().setY(e.dragon ? 4 : 1.5), e.dragon ? 0xff8a40 : 0xff60f0, 25, 7);
++    burst(e.g.position.clone().setY(e.dragon || e.golem ? 3 : 1), 0xffffff, 45, 10); burst(e.g.position.clone().setY(e.dragon || e.golem ? 4 : 1.5), e.golem ? 0xbfefff : e.dragon ? 0xff8a40 : 0xff60f0, 25, 7);
+     scene.remove(e.g); enemies.splice(enemies.indexOf(e), 1); shake = 0.9;
+   }
+ }
+ function hurtEnemy(e, n, dir, force = 0) { // dir: arah dorong (ternormalisasi), force: kecepatan awal knockback
+   if (e.dying) return; // sedang adegan slowmo
+   e.hp -= n; e.flash = 0.12; if (e.wild) e.aggro = true; // monster hutan yang dipukul langsung marah
+-  if (dir && force) { e.kv.set(dir.x, 0, dir.z).multiplyScalar(force * (e.dragon ? 0.1 : e.boss ? 0.3 : 1)); e.stun = e.dragon ? 0 : e.boss ? 0.15 : 0.35; e.wind = 0; e.g.scale.setScalar(1); }
+-  burst(e.g.position.clone().setY(e.dragon ? 3 : 1.3), e.wild ? e.col : e.dragon ? 0xff8a40 : e.boss ? 0xff60f0 : 0xffd060, 10);
++  if (dir && force) { e.kv.set(dir.x, 0, dir.z).multiplyScalar(force * (e.dragon || e.golem ? 0.1 : e.boss ? 0.3 : 1)); e.stun = e.dragon || e.golem ? 0 : e.boss ? 0.15 : 0.35; e.wind = 0; e.g.scale.setScalar(1); }
++  burst(e.g.position.clone().setY(e.dragon || e.golem ? 3 : 1.3), e.wild ? e.col : e.golem ? 0xbfefff : e.dragon ? 0xff8a40 : e.boss ? 0xff60f0 : 0xffd060, 10);
+   if (e.hp <= 0 && !e.wild && enemies.length === 1 && wave === WAVES.length - 1) { startKillCam(e); return; } // musuh terakhir: slowmo dulu
+   if (e.hp <= 0) {
+     burst(e.g.position.clone().setY(1), 0xffffff, 24, 7);
+@@ -471,7 +474,7 @@
+         stp = Math.max(-sp * dt, Math.min(sp * dt, df));
+       }
+       e.g.rotation.y += stp; e.turn = dt > 0 ? stp / dt : 0;
+-    } else if (!e.wild) e.g.rotation.y = Math.atan2(d.x, d.z); // monster hutan mengatur arah hadapnya sendiri
++    } else if (!e.wild && !e.golem) e.g.rotation.y = Math.atan2(d.x, d.z); // (golem berbelok sendiri di golemAI) monster hutan mengatur arah hadapnya sendiri
+     e.cd -= dt; e.flash = Math.max(0, e.flash - dt);
+     // knockback: terdorong lalu melambat (gesekan), musuh pusing sebentar & tidak bisa menyerang
+     const wasStun = e.stun > 0; e.stun = Math.max(0, e.stun - dt);
+@@ -484,6 +487,7 @@
+     else if (wasStun) e.g.scale.setScalar(1);
+     e.mat.emissive.setHex(e.flash > 0 ? 0xffffff : e.wind > 0 ? 0x802010 : 0x000000);
+     if (e.dragon) dragonAI(e, d, dist, dt);
++    else if (e.golem) golemAI(e, d, dist, dt);
+     else if (e.wild) wildAI(e, d, dist, dt);
+     else if (e.boss) {
+       const keep = e.stun > 0 ? 0 : dist > 8 ? 1 : dist < 5 ? -1 : 0;
+@@ -514,20 +518,20 @@
+     }
+   }
+   for (const o of [...orbs]) {
+-    o.m.position.addScaledVector(o.v, dt);
++    o.m.position.addScaledVector(o.v, dt); if (o.spin) o.m.rotation.x += o.spin * dt;
+     if (o.m.position.distanceTo(player.position.clone().setY(1.1)) < 1.0) { hurtPlayer(12); kill(o); }
+     else if (o.m.position.length() > R + 2 || o.m.position.y < 0) kill(o);
+   }
+-  function kill(o) { scene.remove(o.m); orbs.splice(orbs.indexOf(o), 1); }
++  function kill(o) { if (o.rock) { burst(o.m.position.clone(), 0xbfe6f5, 10, 5); golemImpact(0.45); } scene.remove(o.m); orbs.splice(orbs.indexOf(o), 1); }
+   for (const r of [...rings]) {
+     r.t -= dt; r.m.material.opacity = 0.25 + Math.sin(r.t * 20) * 0.1;
+     if (r.t <= 0) {
+       if (!r.big && player.position.distanceTo(r.m.position) < (r.rad || 4.6)) hurtPlayer(r.dmg || 25); // hantaman naga (big): damage diberikan saat ledakan
+-      if (r.big) spawnBlast(r.m.position, r.rad, r.dmg || 30, r.kind); else { burst(r.m.position, 0xff6030, 30, 8); shake = 0.6; }
++      if (r.kind === 'golem') spawnQuake(r.m.position, r.rad, r.dmg); else if (r.big) spawnBlast(r.m.position, r.rad, r.dmg || 30, r.kind); else { burst(r.m.position, 0xff6030, 30, 8); shake = 0.6; }
+       scene.remove(r.m); rings.splice(rings.indexOf(r), 1);
+     }
+   }
+-  updateBlasts(dt);
++  updateBlasts(dt); updateQuakes(dt);
+ }
+ 
+ // ---------- Monster liar di Hutan Besar: slime & goblin muncul acak, hanya selama pemain di dalam hutan ----------
+@@ -1339,7 +1343,7 @@
+   blasts.push({ g, ball, core, wave, rad, dmg, pl, kind, t: 0, boom: false });
+   shake = Math.max(shake, 0.5); burst(new THREE.Vector3(pos.x, 0.3, pos.z), 0xff8a30, 30, 8);
+ }
+-function clearBlasts() { for (const b of blasts) scene.remove(b.g); blasts.length = 0; }
++function clearBlasts() { for (const b of blasts) scene.remove(b.g); blasts.length = 0; for (const q of quakes) scene.remove(q.wave); quakes.length = 0; }
+ function updateBlasts(dt) {
+   for (const b of [...blasts]) {
+     b.t += dt; const t = b.t;
+@@ -1510,8 +1514,120 @@
+   if (e.flash <= 0 && glow > 0) e.mat.emissive.setRGB(0.5 * glow, 0.12 * glow, 0.02 * glow); // memerah saat bersiap menyerang
+ }
+ 
++// ---------- Bos golem: Tharok (golem.glb), dilawan lewat Pintu Penjaga di Reruntuhan Kuno ----------
++// Model & gerak sendi ada di golem.js; di sini AI, serangan & efeknya. Serangan: Palu (satu lengan, jarak dekat), Hentakan (kedua lengan, gelombang kejut di sekitarnya),
++// Lempar Batu (3 bongkah, jarak jauh), dan setelah darah < 50% ia mengamuk (lebih cepat) + Hujan Batu (lingkaran peringatan di sekitar pemain).
++const quakes = []; // gelombang kejut berbentuk cincin
++// Batu lempar golem: bongkah RUNCING (ikosahedron yang sebagian titiknya ditarik keluar jadi duri; titik yang sama = duri yang sama, jadi tidak ada retakan)
++const rockGeo = (() => {
++  const g = new THREE.IcosahedronGeometry(0.5, 1), p = g.attributes.position;
++  for (let i = 0; i < p.count; i++) {
++    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), h = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453, k = h - Math.floor(h);
++    p.setXYZ(i, ...[x, y, z].map(v => v * (k > 0.55 ? 2.1 : 0.8)));
++  }
++  g.computeVertexNormals(); return g;
++})();
++// Efek suara hantaman (golem-impact.mp3): dimainkan saat batu dilempar & saat batu pecah; mengikuti volume efek di pengaturan
++const impactSnd = new Audio('golem-impact.mp3'); impactSnd.preload = 'auto';
++function golemImpact(vol = 1) { try { const a = impactSnd.cloneNode(); a.volume = Math.max(0, Math.min(1, audio.sfxVolume * vol)); a.play().catch(() => {}); } catch (e) { /* abaikan */ } }
++function spawnQuake(pos, rad, dmg) { // hantaman tanah: cincin menyapu keluar + serpihan es; melukai pemain di dalam radius (berguling = kebal)
++  const am = (c, op) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
++  const wave = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 64), am(0x9fefff, 0.85)); wave.rotation.x = -Math.PI / 2; wave.position.set(pos.x, 0.1, pos.z); wave.scale.setScalar(0.1); scene.add(wave);
++  quakes.push({ wave, rad, t: 0 });
++  shake = Math.max(shake, 0.45 + rad * 0.07); audio.sfx('thud', { vol: 0.9, rate: 0.55 });
++  if (Math.hypot(player.position.x - pos.x, player.position.z - pos.z) < rad) hurtPlayer(dmg);
++  const c = new THREE.Vector3(pos.x, 0.4, pos.z); burst(c, 0xcfefff, 26, 9); burst(c, 0x8fb8d0, 18, 6);
++  for (let i = 0; i < Math.min(40, 14 + rad * 3); i++) {
++    const m = new THREE.Mesh(sparkGeo, new THREE.MeshBasicMaterial({ color: Math.random() < 0.5 ? 0xcfefff : 0x8fb8d0, transparent: true })); m.scale.setScalar(rnd(1.5, 4));
++    const a = Math.random() * Math.PI * 2, dd = Math.random() * rad * 0.9; m.position.set(pos.x + Math.cos(a) * dd, 0.2, pos.z + Math.sin(a) * dd);
++    fx.push({ m, v: new THREE.Vector3(rnd(-2, 2), rnd(5, 12), rnd(-2, 2)), life: rnd(0.7, 1.3), max: 1.3 }); scene.add(m);
++  }
++}
++function updateQuakes(dt) {
++  for (const q of [...quakes]) {
++    q.t += dt; const u = Math.min(1, q.t / 0.5);
++    q.wave.scale.setScalar(Math.max(0.1, q.rad * (0.1 + 0.95 * u))); q.wave.material.opacity = 0.85 * (1 - u);
++    if (u >= 1) { scene.remove(q.wave); q.wave.geometry.dispose(); q.wave.material.dispose(); quakes.splice(quakes.indexOf(q), 1); }
++  }
++}
++function mkGolem() {
++  const rig = buildGolem(), g = new THREE.Group(); g.add(rig.root);
++  g.position.set(GOLEM.spawn.x, 0, GOLEM.spawn.z); g.rotation.y = 0; scene.add(g);   // menghadap +z, ke arah pemain
++  const pose = newGolemPose(); pose.intro = 0; poseGolem(rig, pose);
++  const e = { g, rig, pose, mat: rig.mat, boss: true, golem: true, hp: GOLEM.hp, max: GOLEM.hp, sp: GOLEM.speed, r: GOLEM.r, cd: 1, wind: 0, flash: 0, kv: new THREE.Vector3(), stun: 0,
++    intro: 1.6, ign: false, at: null, t: 0, hit: false, gap: 0.6, cdA: 1.2, cdB: 5, cdC: 3.5, cdD: 6, rage: false, fs: 0 };
++  enemies.push(e); return e;
++}
++function golemStart(e, at, d, fwd) {
++  const A = ATTACK[at], ps = e.pose, g = e.g; e.at = ps.at = at; e.t = ps.t = 0; e.hit = false;
++  const ringAt = (x, z, rad, t, dmg) => { const m = new THREE.Mesh(new THREE.RingGeometry(0.1, rad, 48), new THREE.MeshBasicMaterial({ color: 0xff2020, transparent: true, opacity: 0.35, side: THREE.DoubleSide }));
++    m.rotation.x = -Math.PI / 2; m.position.set(x, 0.05, z); scene.add(m); rings.push({ m, t, rad, dmg, big: true, kind: 'golem' }); };
++  if (at === 'punch') { ps.side = Math.random() < 0.5 ? 1 : -1; e.cdA = e.rage ? 1.8 : 2.6; }
++  else if (at === 'slam') { e.cdB = e.rage ? 5.5 : 7.5; ringAt(g.position.x + fwd.x * 1.5, g.position.z + fwd.z * 1.5, 7.5, A.hit, 30); }
++  else if (at === 'rocks') e.cdC = e.rage ? 4.5 : 6.5;
++  else if (at === 'rain') {
++    e.cdD = 8; const pp = player.position;
++    [[0, 0], [3.2, 1], [-3.4, 2.4], [1.2, -3.6], [-1.4, 4.2]].forEach(([ox, oz], i) => {
++      let x = pp.x + ox, z = pp.z + oz; const hl = Math.hypot(x, z); if (hl > R - 2) { x *= (R - 2) / hl; z *= (R - 2) / hl; }
++      ringAt(x, z, 2.6, A.hit + i * 0.2, 18);
++    });
++  } else if (at === 'roar') { e.rage = true; audio.sfx('roar'); }
++}
++function golemHit(e, d, dist, fwd) { // saat gerakan "kena": damage & efek (hentakan / hujan dihitung lewat cincin peringatan -> spawnQuake)
++  const g = e.g, ps = e.pose;
++  if (e.at === 'punch') {
++    shake = Math.max(shake, 0.45); burst(g.position.clone().addScaledVector(fwd, 3.9).setY(0.4), 0xcfefff, 18, 8); audio.sfx('thud', { vol: 0.8, rate: 0.7 });
++    if (dist < 6.4 && fwd.dot(d) > 0.3) hurtPlayer(22);
++  } else if (e.at === 'rocks') {
++    const o = g.position.clone().addScaledVector(fwd, 1.8).setY(4.2), to = player.position.clone().setY(1.1).sub(o).normalize(); golemImpact(1);
++    for (const a of [-0.26, 0, 0.26]) {
++      const m = new THREE.Mesh(rockGeo, new THREE.MeshStandardMaterial({ color: 0x9fc2d6, emissive: 0x103848, roughness: 0.8, flatShading: true }));
++      m.position.copy(o); m.castShadow = true; scene.add(m); orbs.push({ m, v: to.clone().applyAxisAngle(UP, a).multiplyScalar(13), spin: rnd(4, 8), rock: true });
++    }
++  } else if (e.at === 'roar') { shake = Math.max(shake, 0.9); ps.glow = 1; burst(g.position.clone().setY(3), 0xcfefff, 40, 10); }
++}
++function golemAI(e, d, dist, dt) {
++  const ps = e.pose, g = e.g, A = e.at && ATTACK[e.at];
++  ps.ph += dt; ps.glow = Math.max(0, ps.glow - dt * 1.5); ps.rage += ((e.rage ? 1 : 0) - ps.rage) * (1 - Math.exp(-dt * 3));
++  e.cdA -= dt; e.cdB -= dt; e.cdC -= dt; e.cdD -= dt; if (e.gap > 0) e.gap -= dt;
++  const fwd = new THREE.Vector3(Math.sin(g.rotation.y), 0, Math.cos(g.rotation.y));
++  let df = Math.atan2(d.x, d.z) - g.rotation.y; df = Math.atan2(Math.sin(df), Math.cos(df)); ps.look = df;
++  const turn = (rate) => { g.rotation.y += Math.max(-rate * dt, Math.min(rate * dt, df)); };
++  if (e.intro > 0) { // bersimpuh -> mata menyala -> bangkit -> meraung
++    const t = 1.6 - e.intro; e.intro -= dt;
++    ps.intro = t < 0.5 ? 0 : easeIO(clamp01((t - 0.5) / 1.0));
++    if (!e.ign && t >= 0.5) { e.ign = true; ps.glow = 1; shake = 0.5; audio.sfx('thud', { vol: 0.8, rate: 0.5 }); }
++    if (e.intro <= 0) { ps.intro = 1; golemStart(e, 'roar', d, fwd); }
++    return;
++  }
++  if (e.at) {
++    e.t += dt; ps.t = e.t;
++    if (e.t < A.hit - 0.15 && e.at !== 'roar') turn(e.rage ? 1.6 : 1.1);   // membidik pemain selama aba-aba, lalu terkunci saat menghantam
++    if (!e.hit && e.t >= A.hit) { e.hit = true; golemHit(e, d, dist, fwd); }
++    if (e.t >= A.dur) { e.at = ps.at = null; e.gap = e.rage ? 0.4 : 0.8; }
++    if (e.flash <= 0) { const k = clamp01(e.t / A.hit) * (e.t < A.hit ? 1 : 0.3); if (e.rage) e.mat.emissive.setRGB(0.4 * k, 0.12 * k, 0.01 * k); else e.mat.emissive.setRGB(0.02 * k, 0.22 * k, 0.32 * k); }   // aba-aba: badan menyala
++  } else {
++    turn(e.rage ? 2.6 : 1.9);
++    if (!e.rage && e.hp < e.max * 0.5) golemStart(e, 'roar', d, fwd);   // separuh darah habis: mengamuk
++    else if (e.gap <= 0) {
++      if (dist < 6.2 && e.cdA <= 0) golemStart(e, 'punch', d, fwd);
++      else if (dist < 9.5 && e.cdB <= 0) golemStart(e, 'slam', d, fwd);
++      else if (dist > 5.5 && e.cdC <= 0) golemStart(e, 'rocks', d, fwd);
++      else if (e.rage && e.cdD <= 0) golemStart(e, 'rain', d, fwd);
++    }
++  }
++  // melangkah mendekati pemain (hanya saat tidak menyerang & sudah menghadapnya)
++  let v = 0;
++  if (!e.at && dist > 4.4 && Math.abs(df) < 1.0) { v = e.sp * (e.rage ? 1.35 : 1); g.position.addScaledVector(fwd, v * dt); }
++  const hl = Math.hypot(g.position.x, g.position.z); if (hl > R - 3) { g.position.x *= (R - 3) / hl; g.position.z *= (R - 3) / hl; }
++  ps.wk += ((v > 0.1 ? 1 : 0) - ps.wk) * (1 - Math.exp(-dt * 6)); ps.wp += v * 1.26 * dt;
++  const fs = Math.floor(ps.wp / Math.PI); if (fs !== e.fs) { e.fs = fs; if (v > 0.1) { shake = Math.max(shake, 0.14); audio.sfx('thud', { vol: 0.35, rate: 0.6 }); } }   // tiap telapak menghentak tanah
++  poseGolem(e.rig, ps);
++}
++
+ // ---------- Alur permainan ----------
+-const WAVES = [2, 4, 'boss', 'dragon']; // level 1-2: musuh biasa, level 3: bos penyihir, level 4: bos naga
++const DUNGEON_WAVES = [2, 4, 'boss', 'dragon']; // level 1-2: musuh biasa, level 3: bos penyihir, level 4: bos naga
++let WAVES = DUNGEON_WAVES, golemMode = false; // golemMode: sedang di arena golem (lewat Pintu Penjaga) -> WAVES = GOLEM_WAVES
+ let state = 'load', wave = 0, shake = 0, next = 0, camMode = 'orbit';
+ syncCam(); document.body.classList.add('orbit'); toast(matchMedia('(pointer:coarse)').matches ? 'Geser layar 1 jari: kiri-kanan memutar, atas-bawah menaik-turunkan kamera' : 'Klik layar untuk mengunci mouse, lalu gerakkan mouse: kiri-kanan memutar, atas-bawah menaik-turunkan kamera (Esc = lepas)', 5000);
+ function spawnWave() {
+@@ -1519,6 +1635,7 @@
+   const bn = $('boss').querySelector('span');
+   if (w === 'boss') { mkEnemy(true); bn.textContent = 'Malzareth, Penyihir Kegelapan'; $('boss').hidden = false; $('wave').textContent = `Level ${wave + 1} / ${WAVES.length} — Bos`; }
+   else if (w === 'dragon') { mkDragon(); bn.textContent = 'Vyrmgar, Naga Api Merah'; $('boss').hidden = false; $('wave').textContent = 'Level 4 — Pertarungan Terakhir'; }
++  else if (w === 'golem') { mkGolem(); bn.textContent = GOLEM.name; $('boss').hidden = false; $('wave').textContent = '🏛️ Penjaga Reruntuhan'; }
+   else { $('boss').hidden = true; for (let i = 0; i < w; i++) mkEnemy(false); $('wave').textContent = `Level ${wave + 1} / ${WAVES.length}`; }
+ }
+ function banner(t, ms = 1800) { $('msg').textContent = t; setTimeout(() => { if (state === 'play') $('msg').textContent = ''; }, ms); }
+@@ -1527,17 +1644,19 @@
+ function enterWorld(fromHole = false, note = null) { // mulai game di dataran hijau (fromHole: muncul di tepi lubang setelah keluar dungeon)
+   state = 'world'; arenaG.visible = false; world.group.visible = true; audio.setScene('world');
+   scene.background.set(SKY_COLOR); scene.fog = worldFog;
++  const fromGolem = fromHole && golemMode;   // keluar dari arena golem -> muncul di depan Pintu Penjaga
++  if (golemMode) { golemMode = false; WAVES = DUNGEON_WAVES; $('exit').textContent = '🌿 Keluar Dungeon'; }
+   const inTown = !fromHole && CITY.open;   // mulai permainan: muncul di Kota Arunika (kembali dari dungeon tetap di tepi lubang)
+-  const sp = fromHole ? { x: 1.6, z: 6.0 } : inTown ? CITY_SPAWN : SPAWN;
++  const sp = fromGolem ? RUINS_DOOR.out : fromHole ? { x: 1.6, z: 6.0 } : inTown ? CITY_SPAWN : SPAWN;
+   player.position.set(sp.x, 0, sp.z); player.rotation.set(0, 0, 0); if (vrm) vrm.scene.rotation.x = 0;
+   if (inTown) world.ensure('kota');   // kota harus sudah selesai dibangun sebelum pemain muncul di dalamnya
+   world.refresh(player.position);   // chunk yang tampil langsung menyesuaikan posisi baru (mis. kembali dari dungeon / mulai ulang)
+-  P.face = fromHole ? Math.atan2(sp.x, sp.z) : inTown ? CITY_SPAWN.face : Math.atan2(-SPAWN.x, -SPAWN.z); player.rotation.y = P.face; P.v.set(0, 0, 0);
++  P.face = fromGolem ? RUINS_DOOR.out.face : fromHole ? Math.atan2(sp.x, sp.z) : inTown ? CITY_SPAWN.face : Math.atan2(-SPAWN.x, -SPAWN.z); player.rotation.y = P.face; P.v.set(0, 0, 0);
+   camYaw = P.face + Math.PI; cam.position.set(sp.x - Math.sin(P.face) * 9, 4.2, sp.z - Math.cos(P.face) * 9);
+-  $('boss').hidden = true; $('wave').textContent = inTown ? '🏙️ ' + CITY.name : '🌿 Dataran Hijau'; $('obj').hidden = false;
++  $('boss').hidden = true; $('wave').textContent = fromGolem ? '🏛️ ' + RUINS.name : inTown ? '🏙️ ' + CITY.name : '🌿 Dataran Hijau'; $('obj').hidden = false; doorBusy = false; doorNear = false;
+   inVillage = false; inForest = false; inDeepForest = false; nearAncientGate = false; inCity = false; inMeadow = false; inDusun = false; nearImperialGate = false; inChurch = false; churchBusy = false; world.church.show(false); inPalace = false; palaceBusy = false; palaceArea = ''; world.palace.show(false); worldFog.density = FOG_DENSITY;
+   if (inTown) inCity = true;   // sudah di dalam kota: pesan masuk kota tidak perlu muncul lagi
+-  $('msg').textContent = note || (inTown ? '🏙️ ' + CITY.name + '\nJalan utama menuju istana ada di timur' : fromHole ? 'Kembali ke Dataran Hijau' : 'Dataran Hijau\nCari lubang menuju dungeon\n🏘️ ' + VILLAGE.name + ' ada di sebelah timur\n🌲 ' + FOREST.name + ' ada di timur desa');
++  $('msg').textContent = note || (fromGolem ? '🏛️ ' + RUINS.name + (golemBeaten ? '\nPenjaga telah ditaklukkan' : '\nKamu selamat keluar dari Pintu Penjaga') : inTown ? '🏙️ ' + CITY.name + '\nJalan utama menuju istana ada di timur' : fromHole ? 'Kembali ke Dataran Hijau' : 'Dataran Hijau\nCari lubang menuju dungeon\n🏘️ ' + VILLAGE.name + ' ada di sebelah timur\n🌲 ' + FOREST.name + ' ada di timur desa');
+   wildT = 1; calmT = 0;
+   setTimeout(() => { if (state === 'world') $('msg').textContent = ''; }, 3500);
+   const f = $('fade'); f.style.transition = 'opacity .9s'; f.style.opacity = 0;
+@@ -1578,6 +1697,9 @@
+   }, 380);
+ }
+ let secretFound = false; try { secretFound = !!JSON.parse(localStorage.getItem(SECRET_QUEST.storageKey) || '{}').found; } catch (e) { /* abaikan */ }
++const ruinsLoad = () => { try { return JSON.parse(localStorage.getItem(RUINS.storageKey) || '{}'); } catch (e) { return {}; } };
++const ruinsSave = p => { try { localStorage.setItem(RUINS.storageKey, JSON.stringify({ ...ruinsLoad(), ...p })); } catch (e) { /* abaikan */ } };
++let golemBeaten = !!ruinsLoad().golem, doorBusy = false, doorNear = false;
+ let ruinsFound = false; try { ruinsFound = !!JSON.parse(localStorage.getItem(RUINS.storageKey) || '{}').found; } catch (e) { /* abaikan */ }
+ function worldTick() {
+   const px = player.position.x, pz = player.position.z;
+@@ -1630,8 +1752,15 @@
+     secretFound = true; try { localStorage.setItem(SECRET_QUEST.storageKey, JSON.stringify({ found: true })); } catch (e) { /* abaikan */ }
+     say('✨ Tempat Tersembunyi\nSesuatu menunggu di tengah lingkaran batu...'); }
+   if (!ruinsFound && Math.hypot(px - RUINS.x, pz - RUINS.z) < RUINS.r + 4) { // pertama kali menemukan Reruntuhan Kuno di ujung Sungai Bening (tersimpan di perangkat)
+-    ruinsFound = true; try { localStorage.setItem(RUINS.storageKey, JSON.stringify({ found: true })); } catch (e) { /* abaikan */ }
++    ruinsFound = true; ruinsSave({ found: true });
+     say('🏛️ ' + RUINS.name + '\nSungai Bening berakhir di tempat yang terlupakan...'); }
++  { // Pintu Penjaga (Reruntuhan Kuno): daun pintu terbuka saat didekati; melangkah ke lorongnya = masuk arena golem
++    const nd = Math.hypot(px - RUINS_DOOR.near.x, pz - RUINS_DOOR.near.z);
++    DOOR_FX.open += (clamp01((RUINS_DOOR.near.r - nd) / 6) - DOOR_FX.open) * 0.06;
++    if (!doorNear && nd < 14) { doorNear = true; say('🚪 ' + RUINS_DOOR.name + '\n' + (golemBeaten ? 'Penjaga sudah ditaklukkan, tapi pintunya masih terbuka...' : 'Getaran berat terasa dari dalam. Bersiaplah.')); }
++    else if (doorNear && nd > 24) doorNear = false;
++    if (!doorBusy && Math.hypot(px - RUINS_DOOR.trigger.x, pz - RUINS_DOOR.trigger.z) < RUINS_DOOR.trigger.r) golemGo();
++  }
+   const fw = { x: -Math.sin(camYaw), z: -Math.cos(camYaw) }, rt = { x: Math.cos(camYaw), z: -Math.sin(camYaw) }; // arah depan & kanan kamera
+   $('objA').style.transform = `rotate(${Math.atan2(-px * rt.x - pz * rt.z, -px * fw.x - pz * fw.z)}rad)`;
+   $('objD').textContent = Math.max(0, Math.round(Math.hypot(px, pz) - HOLE_R)) + ' m';
+@@ -1660,6 +1789,24 @@
+   const f = $('fade'); f.style.transition = 'opacity .9s'; f.style.opacity = 0;
+ }
+ 
++// Masuk Pintu Penjaga: layar memudar, pemain dipindah ke arena (arena dungeon yang sama, tetapi hanya berisi golem)
++function golemGo() {
++  doorBusy = true; clearWild(); stick.x = stick.y = 0; P.v.set(0, 0, 0); $('msg').textContent = '';
++  const f = $('fade'); f.style.transition = 'opacity .5s'; f.style.opacity = 1;
++  setTimeout(() => { if (state !== 'world') { doorBusy = false; return; } enterGolemArena(); }, 540);
++}
++function golemSetup() { // pemain di sisi selatan menghadap golem di sisi utara
++  player.position.set(GOLEM.player.x, 0, GOLEM.player.z); P.face = Math.PI; player.rotation.set(0, Math.PI, 0); P.v.set(0, 0, 0);
++  camYaw = 0; cam.position.set(GOLEM.player.x, 6, GOLEM.player.z + 11);
++}
++function enterGolemArena() {
++  golemMode = true; WAVES = GOLEM_WAVES; wave = 0; next = 0; $('exit').textContent = '🏛️ Keluar ke Reruntuhan';
++  audio.setScene('dungeon'); world.group.visible = false; arenaG.visible = true; scene.background.set(0x07060a); scene.fog = arenaFog;
++  $('obj').hidden = true; DOOR_FX.open = 0; doorBusy = false; if (vrm) vrm.scene.rotation.x = 0;
++  golemSetup(); state = 'play'; banner('🏛️ Penjaga Reruntuhan\nGolem terbangun...', 2800); spawnWave();
++  const f = $('fade'); f.style.transition = 'opacity .9s'; f.style.opacity = 0;
++}
++
+ function exitDungeon() { // menang -> naik keluar dungeon ke dataran hijau
+   if (!canAgain) return;
+   canAgain = false; $('again').hidden = true; $('exit').hidden = true; $('msg').textContent = '';
+@@ -1670,11 +1817,11 @@
+ 
+ function begin() { state = 'play'; banner('Arena Terbuka!\nKalahkan semua musuh'); spawnWave(); }
+ const againHint = () => document.body.classList.contains('touch') ? 'Ketuk tombol di bawah untuk main lagi' : 'Klik atau tekan R untuk main lagi';
+-function showAgain() { canAgain = true; $('again').hidden = false; $('exit').hidden = state !== 'win'; $('msg').textContent += '\n\n' + againHint(); }
++function showAgain() { canAgain = true; $('again').hidden = false; $('exit').hidden = state !== 'win' && !golemMode; $('msg').textContent += '\n\n' + againHint(); }
+ function end(win) {
+   loseInWorld = !win && state === 'world'; // kalah di hutan -> bangun lagi di dunia luar, bukan masuk dungeon
+   stopLaser(); clearBlasts(); state = win ? 'win' : 'lose'; canAgain = false; $('again').hidden = true; $('exit').hidden = true;
+-  if (win) { $('msg').textContent = 'KEMENANGAN!\nVillain telah dikalahkan'; setTimeout(() => { if (state === 'win') showAgain(); }, 900); }
++  if (win) { if (golemMode) { golemBeaten = true; ruinsSave({ golem: true }); } $('msg').textContent = golemMode ? 'GOLEM HANCUR!\nPenjaga Reruntuhan telah dikalahkan' : 'KEMENANGAN!\nVillain telah dikalahkan'; setTimeout(() => { if (state === 'win') showAgain(); }, 900); }
+   else { $('msg').textContent = ''; startDefeat(); }
+ }
+ function restart(toWorld = false) {
+@@ -1685,7 +1832,7 @@
+   Object.values(SK).forEach(s => s.t = 0); waves.forEach(w => scene.remove(w.g)); waves.length = 0; player.position.set(0, 0, 0); P.v.set(0, 0, 0);
+   wave = 0; next = 0; $('boss').hidden = true; $('exit').hidden = true;
+   if (toWorld || loseInWorld) { const lost = loseInWorld; loseInWorld = false; enterWorld(true, lost ? 'Louis pingsan...\nTerbangun kembali di Dataran Hijau' : null); return; }
+-  state = 'play'; $('msg').textContent = ''; spawnWave();
++  state = 'play'; $('msg').textContent = ''; if (golemMode) golemSetup(); spawnWave();
+ }
+ 
+ // ---------- Animasi kalah: terkena serangan -> berlutut -> terkapar ----------
+--- a/ruins.js
++++ b/ruins.js
+@@ -1,5 +1,6 @@
+ import * as THREE from 'three';
+ import { RIVER_PTS, RIVER_FRAME as F, RUINS, RUINS_CIRCLES, riverEdge, meadowDist, ruinsDist } from './meadow-layout.js';
++import { RUINS_DOOR, DOOR_FX } from './golem-layout.js';
+ 
+ // ============================================================
+ //  RERUNTUHAN KUNO — tempat RAHASIA di ujung hilir Sungai Bening (dibangun oleh meadow.js, di bagian padang yang memuat sungai)
+@@ -9,6 +10,7 @@
+ //  - Sungai (air, tepi, tabrakan tepi air) dibuat oleh meadow.js bagian 11; di sini hanya kolam, gerbang, lantai, pilar, tembok, altar, pohon sekitar, cahaya.
+ //  - Memakai pengacak SENDIRI (bukan rand padang) supaya urutan acak isi padang yang lain tidak berubah.
+ //  Koordinat lokal grup reruntuhan = "bingkai sungai": x = a (searah jalan di jembatan), z = b (ke selatan). Titik dunia: lihat W().
++//  - PINTU PENJAGA (bagian 11): pintu batu di dinding timur; daun pintunya terbuka saat pemain mendekat (DOOR_FX.open, golem-layout.js), melangkah ke lorongnya = masuk arena golem (game.js).
+ //  Generator: tiap `yield` = titik berhenti (ChunkManager melanjutkan di frame berikutnya).
+ // ============================================================
+ export function* buildRuinsGen(o) {
+@@ -113,7 +115,7 @@
+     const WR = 22.5, NS = 26, chord = 2 * Math.PI * WR / NS;
+     for (let i = 0; i < NS; i++) {
+       const ang = (i + 0.5) / NS * Math.PI * 2, a = A + Math.sin(ang) * WR, b = B + Math.cos(ang) * WR;
+-      if (rand() < 0.4 || (Math.abs(a) < 12 && b < 162)) continue;                                  // celah acak; sisi utara dibiarkan terbuka (jalan masuk dari gerbang)
++      if (rand() < 0.4 || (Math.abs(a) < 12 && b < 162) || i === RUINS_DOOR.seg) continue;                                  // celah acak; sisi utara dibiarkan terbuka (jalan masuk dari gerbang)
+       const h = R(0.7, 3.3), wl = mesh(box(chord * 0.96, h, 0.9), i % 2 ? stone : stoneM, a, h / 2, b); wl.rotation.y = ang;
+       for (let k = 0; k < 2; k++) { const t = R(-chord / 2.4, chord / 2.4), c = mesh(box(R(0.7, 1.4), R(0.3, 0.9), 0.8), stoneD, a + t * Math.cos(ang), h + 0.2, b - t * Math.sin(ang)); c.rotation.y = ang + R(-0.2, 0.2); c.rotation.z = R(-0.15, 0.15); }
+       if (h > 0.9) { const n = Math.ceil(chord / 1.3); for (let k = 0; k < n; k++) { const t = (k / (n - 1) - 0.5) * chord * 0.9; solid(a + t * Math.cos(ang), b - t * Math.sin(ang), 0.7); } }
+@@ -122,7 +124,7 @@
+     const NB = COARSE ? 28 : 46, bi = new THREE.InstancedMesh(box(1, 1, 1), std(0xffffff), NB); let n = 0;
+     for (let i = 0; i < NB * 8 && n < NB; i++) {
+       const ang = rand() * 6.283, d = Math.sqrt(rand()) * (RUINS.r + 1), a = A + Math.sin(ang) * d, b = B + Math.cos(ang) * d;
+-      if (Math.hypot(a - A, b - PB) < PR + 3 || (Math.abs(a) < 8 && b < GB + 12) || (Math.abs(a) < 8 && b > AB - 5) || Math.abs(a - 12.6) < 4 && Math.abs(b - GB - 6.4) < 4) continue;
++      if (Math.hypot(a - A, b - PB) < PR + 3 || (Math.abs(a) < 8 && b < GB + 12) || (Math.abs(a) < 8 && b > AB - 5) || Math.abs(a - 12.6) < 4 && Math.abs(b - GB - 6.4) < 4 || (a > 14 && Math.abs(b - B) < 5.5)) continue;   // (terakhir: jalan ke Pintu Penjaga bebas puing)
+       const s = R(0.5, 1.4); dummy.position.set(a, s * 0.22, b); dummy.rotation.set(R(-0.2, 0.2), R(0, 6), R(-0.2, 0.2)); dummy.scale.set(s * R(1, 1.6), s * R(0.5, 0.9), s * R(0.9, 1.4)); dummy.updateMatrix();
+       bi.setMatrixAt(n, dummy.matrix); const g = R(0.7, 1.1); bi.setColorAt(n, tmpC.setRGB(0.55 * g, 0.54 * g, 0.5 * g)); if (s > 0.85) solid(a, b, s * 0.8); n++;
+     }
+@@ -201,6 +203,49 @@
+   }
+   yield;
+ 
++
++  // ---------- 11) PINTU PENJAGA: pintu batu di dinding timur menuju arena golem ----------
++  // Dibangun dalam grup `dg` di titik (DA, DB) dinding keliling, dgn sumbu lokal: x = +b (selatan), z = ke tengah reruntuhan (-a). Lorong ada di z negatif (keluar dinding).
++  const DA = RUINS_DOOR.a, DB = RUINS_DOOR.b, dg = new THREE.Group(); dg.position.set(DA, 0, DB); dg.rotation.y = -Math.PI / 2; rg.add(dg);
++  const dsolid = (lx, lz, r) => solid(DA - lz, DB + lx, r);
++  const leafTex = glow => canvasTex(256, 512, (x, W2, H2) => {   // daun pintu: ukiran rune (glow = true: hanya garis cyan di atas hitam, untuk emissiveMap)
++    x.fillStyle = glow ? '#000' : '#5e5c55'; x.fillRect(0, 0, W2, H2);
++    if (!glow) for (let i = 0; i < 260; i++) { x.fillStyle = `rgba(30,28,24,${rand() * 0.18})`; x.fillRect(rand() * W2, rand() * H2, 1 + rand() * 3, 1 + rand() * 3); }
++    x.strokeStyle = glow ? '#7fe8ff' : '#2a2824'; x.lineWidth = glow ? 7 : 11; x.strokeRect(18, 18, W2 - 36, H2 - 36);
++    x.lineWidth = glow ? 6 : 9; x.beginPath(); x.arc(W2 / 2, 150, 62, 0, 7); x.stroke(); x.beginPath(); x.arc(W2 / 2, 150, 28, 0, 7); x.stroke();
++    x.beginPath(); x.moveTo(W2 / 2, 60); x.lineTo(W2 / 2, 450); for (let k = 0; k < 5; k++) { const y = 250 + k * 44; x.moveTo(W2 / 2 - 52, y); x.lineTo(W2 / 2, y + 22); x.lineTo(W2 / 2 + 52, y); } x.stroke();
++  });
++  const leafM = new THREE.MeshStandardMaterial({ map: leafTex(false), emissive: 0x7fe8ff, emissiveMap: leafTex(true), emissiveIntensity: 0.9, roughness: 1 });
++  mesh(box(6.6, 0.16, 1.4), stoneD, 0, 0.08, 3.0, dg); mesh(box(5.8, 0.32, 1.4), stone, 0, 0.16, 1.9, dg); mesh(box(4.6, 0.12, 4.4), stone, 0, 0.06, -1.9, dg);   // undakan landai + lantai lorong
++  for (const sg of [-1, 1]) {
++    mesh(box(2.8, 0.5, 2.8), stoneD, sg * 2.9, 0.25, -0.2, dg); mesh(box(2.0, 7.0, 2.2), stone, sg * 2.9, 4.0, -0.2, dg); mesh(box(2.6, 0.4, 2.8), stoneD, sg * 2.9, 7.7, -0.2, dg);
++    mesh(box(1.0, 7.9, 3.2), stoneM, sg * 2.4, 3.95, -2.2, dg);                                                                                                  // dinding lorong
++    dsolid(sg * 2.9, -0.2, 1.45); dsolid(sg * 2.5, -1.7, 0.7); dsolid(sg * 2.5, -2.9, 0.7);
++    const pl = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 3.2), rune); pl.position.set(sg * 1.88, 3.8, -0.2); pl.rotation.y = -sg * Math.PI / 2; dg.add(pl);          // rune di sisi dalam pilar
++    const px = sg * 5.2, pz = 1.9;                                                                                                                              // pedupaan api biru di kiri-kanan pintu
++    mesh(new THREE.CylinderGeometry(0.3, 0.42, 1.0, 8), stoneD, px, 0.5, pz, dg); mesh(new THREE.CylinderGeometry(0.6, 0.32, 0.45, 10), stone, px, 1.2, pz, dg);
++    const fl = new THREE.Mesh(new THREE.ConeGeometry(0.36, 1.1, 7), new THREE.MeshBasicMaterial({ color: 0x7fe8ff, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
++    fl.position.set(px, 1.95, pz); dg.add(fl); flames.push(fl); dsolid(px, pz, 0.75);
++  }
++  mesh(box(8.8, 1.5, 2.8), stoneD, 0, 8.65, -0.2, dg); mesh(box(5.8, 0.6, 3.4), stoneD, 0, 7.6, -2.0, dg);                                                     // ambang atas + atap lorong
++  mesh(box(4.6, 7.4, 0.6), stoneD, 0, 3.8, -3.9, dg); dsolid(-1.2, -3.7, 0.8); dsolid(1.2, -3.7, 0.8); dsolid(0, -3.9, 0.8);                                  // dinding belakang lorong
++  const plaque = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 1.2), new THREE.MeshStandardMaterial({ roughness: 1, emissive: 0x7fe8ff, emissiveIntensity: 0.25, map: canvasTex(512, 96, (x, W2, H2) => {
++    x.fillStyle = '#6a675f'; x.fillRect(0, 0, W2, H2); x.strokeStyle = '#2b2822'; x.lineWidth = 6; x.strokeRect(6, 6, W2 - 12, H2 - 12);
++    x.textAlign = 'center'; x.fillStyle = '#26231e'; x.font = 'bold 40px Georgia'; x.fillText('PINTU PENJAGA', W2 / 2, 46); x.font = 'italic 21px Georgia'; x.fillText('Yang melangkah masuk, hadapilah ia.', W2 / 2, 76); }) }));
++  plaque.position.set(0, 8.65, 1.22); dg.add(plaque);
++  const portalTex = canvasTex(256, 256, (x, W2, H2) => {   // kabut cahaya di ujung lorong
++    const g = x.createRadialGradient(W2 / 2, H2 / 2, 6, W2 / 2, H2 / 2, W2 * 0.7); g.addColorStop(0, '#d8fbff'); g.addColorStop(0.35, '#3aa6c4'); g.addColorStop(1, '#04141c'); x.fillStyle = g; x.fillRect(0, 0, W2, H2);
++    for (let i = 0; i < 26; i++) { x.strokeStyle = `rgba(190,245,255,${0.08 + rand() * 0.2})`; x.lineWidth = 1 + rand() * 2; x.beginPath(); x.arc(W2 / 2, H2 / 2, 14 + rand() * 100, rand() * 6.3, rand() * 6.3 + 0.6 + rand() * 1.6); x.stroke(); }
++  });
++  portalTex.center.set(0.5, 0.5);
++  const portalMat = new THREE.MeshBasicMaterial({ map: portalTex }), portal = new THREE.Mesh(new THREE.PlaneGeometry(4.0, 7.2), portalMat); portal.position.set(0, 4.1, -3.55); dg.add(portal);
++  const leaves = [-1, 1].map(sg => {   // daun pintu: berengsel di pilar, terbuka ke dalam lorong
++    const hinge = new THREE.Group(); hinge.position.set(sg * 1.9, 0.5, -0.2); dg.add(hinge);
++    const lf = new THREE.Mesh(box(1.9, 6.8, 0.45), [stone, stone, stone, stone, leafM, stoneD]); lf.position.set(-sg * 0.95, 3.4, 0); lf.castShadow = lf.receiveShadow = true; hinge.add(lf); return { hinge, sg };
++  });
++  const doorLight = new THREE.PointLight(0x7fe8ff, 0, 18, 2); doorLight.position.set(0, 3.6, -1.0); dg.add(doorLight);
++  yield;
++
+   // ---------- 10) Butiran cahaya biru melayang: di sekitar kolam, dan samar di sepanjang sungai sebagai petunjuk halus ----------
+   const NM = COARSE ? 40 : 80, moteG = new THREE.BufferGeometry(), motePos = new Float32Array(NM * 3), seeds = [];
+   const tail = RIVER_PTS.filter(p => (p.x - F.x) * -F.tz + (p.z - F.z) * F.tx > 100 && (p.x - F.x) * -F.tz + (p.z - F.z) * F.tx < GB - 4);
+@@ -216,6 +261,9 @@
+     group: out,
+     update(t) {
+       rune.opacity = 0.5 + Math.sin(t * 1.3) * 0.2;
++      { const o = DOOR_FX.open, e = o * o * (3 - 2 * o);   // daun Pintu Penjaga membuka mengikuti jarak pemain; cahaya lorong makin terang
++        for (const l of leaves) l.hinge.rotation.y = -l.sg * 1.6 * e;
++        doorLight.intensity = (0.8 + 9 * e) * (0.88 + 0.12 * Math.sin(t * 2.3)); portalMat.color.setScalar(0.3 + 0.7 * e); portalTex.rotation = t * 0.22; }
+       poolLight.intensity = 6.5 + Math.sin(t * 1.3 + 1) * 1.3; altarLight.intensity = 3.2 + Math.sin(t * 1.9) * 0.6;
+       crystal.position.y = 6.1 + Math.sin(t * 1.1) * 0.18; crystal.rotation.y = t * 0.8;
+       poolTex.rotation = t * 0.04;

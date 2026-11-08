@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { CITY, PLAZA, STREETS, PAVE_RECTS, BUILDINGS, streetRect, toWorld } from './city-layout.js';
+import { CITY, PLAZA, STREETS, PAVE_RECTS, BUILDINGS, EAST_GATE, EAST_ROAD, streetRect, toWorld } from './city-layout.js';
 
 // ============================================================
 //  Membangun Kota Arunika (dipanggil dari world.js). HANYA bangunan + lantai jalan batu.
@@ -11,7 +11,9 @@ import { CITY, PLAZA, STREETS, PAVE_RECTS, BUILDINGS, streetRect, toWorld } from
 const STONE = 0x8d8a85, STONE_L = 0xb9b4a8, STONE_D = 0x6f6c68, DOOR = 0x5a3a22, DARK = 0x2a2220, SLATE = 0x4a5868, COPPER = 0x5f9a86, GOLD = 0xe0b33a;
 const HALF_PI = Math.PI / 2;
 
-export function buildCity({ colliders, COARSE = false }) {
+// Generator: tiap `yield` = titik berhenti. Dipanggil bertahap oleh ChunkManager (chunks.js) supaya membangun kota
+// tidak menahan satu frame pun (nilai kembalian generator = { group }).
+export function* buildCityGen({ colliders, COARSE = false }) {
   const group = new THREE.Group(); group.name = 'kota';
   const solidMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true });
   const glassMat = new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffa83a, emissiveIntensity: 0.55, roughness: 0.6, flatShading: true });
@@ -169,7 +171,11 @@ export function buildCity({ colliders, COARSE = false }) {
     // gerbang (gatehouse) di depan
     const gz = 8;
     boxB(7.4, 14, 3.2, 0, 0.6, gz, WALL); boxB(8.0, 0.5, 3.8, 0, 14.6 - 0.5, gz, TRIM); crenel(8.0, 3.8, 14.6, TRIM, 1.5, gz);
-    boxB(3.4, 4.8, 0.2, 0, 0.6, gz + 1.62, DARK); boxB(4.0, 0.35, 0.35, 0, 5.4, gz + 1.65, TRIM); for (const x of [-1.5, -0.5, 0.5, 1.5]) boxB(0.08, 4.8, 0.06, x, 0.6, gz + 1.76, STONE_D);
+    // gerbang terbuka: lorong gelap dengan cahaya hangat dari dalam istana (pintu masuk interior), jeruji gerbang terangkat di atas
+    boxB(3.4, 4.8, 0.2, 0, 0.6, gz + 1.62, DARK); boxB(4.0, 0.35, 0.35, 0, 5.4, gz + 1.65, TRIM);
+    put(new THREE.PlaneGeometry(3.0, 4.4), 0xffffff, 'glass', 0, 0.6 + 2.2, gz + 1.74);
+    for (const x of [-1.5, -0.5, 0.5, 1.5]) boxB(0.08, 1.0, 0.06, x, 4.4, gz + 1.78, STONE_D);
+    for (const sx of [-1, 1]) { boxB(0.3, 4.8, 0.5, sx * 1.85, 0.6, gz + 1.8, STONE_D); boxB(0.7, 0.5, 0.7, sx * 1.85, 0.6, gz + 1.8, TRIM); }   // tiang gerbang
     for (const sx of [-1, 1]) { box(1.5, 4.2, 0.08, sx * 2.45, 9.4, gz + 1.65, 0xa8301f); put(new THREE.PlaneGeometry(0.8, 1.5), 0xffffff, 'glass', sx * 2.45, 12.4, gz + 1.65); }
     // jendela di dinding depan, belakang & samping blok utama
     for (const y of [4.2, 8.6]) for (const x of [-8, -5.5, 5.5, 8]) windowAt(MW, MD, 0, x, y, 0.9, 1.5, TRIM, MZ);
@@ -179,6 +185,7 @@ export function buildCity({ colliders, COARSE = false }) {
 
   // ---------- Bangun semuanya ----------
   const FNS = { townhall, cathedral, castle };
+  let bi = 0;
   for (const b of BUILDINGS) {
     const w = toWorld(b, 0, 0), m = new THREE.Matrix4().compose(new THREE.Vector3(w.x, 0, w.z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, b.yaw, 0)), one);
     cur = { m, bucket: bucketOf(b) };
@@ -191,24 +198,85 @@ export function buildCity({ colliders, COARSE = false }) {
       edge(x0, z0, x1, z0); edge(x1, z0, x1, z1); edge(x1, z1, x0, z1); edge(x0, z1, x0, z0);
     }
     for (const c of b.circles) { const p = toWorld(b, c.x, c.z); colliders.push({ x: p.x, z: p.z, r: c.r }); }
+    if ((++bi % 12) === 0) yield;   // beri jeda tiap 12 bangunan
   }
-  buckets.forEach(bk => {
+  yield;
+  // ---------- Tembok kota: mengelilingi seluruh kerajaan (u -56 .. 97, v -68 .. 68) ----------
+  // Sisi barat berhenti di kiri-kanan Gerbang Batu Kuno (celah |v| < 14.5) sehingga gerbang tetap menjadi satu-satunya pintu masuk.
+  { const WU0 = -56, WU1 = 97, WV0 = -68, WV1 = 68, WT = 2.5, WH = 8, GAP = 14.5;
+    const WALL = 0x9a958a, WALL_D = 0x6f6c68, ROOFW = 0x7b3b2a, I4 = new THREE.Matrix4();
+    const at = (u, v) => { cur = { m: I4, bucket: bucketOf({ u, v }) }; };
+    const wx = u => CITY.x + u, wz = v => CITY.z + v;
+    function run(ua, va, ub, vb, nu, nv) {                       // dinding lurus sejajar sumbu; (nu, nv) = arah luar kota
+      const horiz = va === vb, len = Math.abs(horiz ? ub - ua : vb - va), n = Math.ceil(len / 12), l = len / n;
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n, cu = ua + (ub - ua) * t, cv = va + (vb - va) * t, X = wx(cu), Z = wz(cv);
+        at(cu, cv);
+        const sz = (a, b) => horiz ? [a, b] : [b, a];             // (sepanjang, tebal) -> (lebar x, dalam z)
+        let [w, d] = sz(l, WT + 0.7); boxB(w, 1.0, d, X, 0, Z, WALL_D);                       // alas
+        [w, d] = sz(l, WT); boxB(w, WH, d, X, 0, Z, WALL);                                    // badan dinding
+        [w, d] = sz(l + 0.02, WT + 0.45); boxB(w, 0.4, d, X, WH, Z, WALL_D);                  // bibir atas
+        [w, d] = sz(1.5, 1.3); boxB(w, WH - 1.2, d, X + (horiz ? 0 : nu * (WT / 2 + 0.55)), 0, Z + (horiz ? nv * (WT / 2 + 0.55) : 0), WALL_D);   // penopang di sisi luar
+        for (let k = 1; k < l; k += 2) for (const sd of [-1, 1]) {                            // gigi-gigi benteng di kedua tepi
+          const a = -l / 2 + k, off = sd * (WT / 2 + 0.05);
+          const [mw, md] = sz(1.1, 0.7);
+          boxB(mw, 1.1, md, X + (horiz ? a : off), WH + 0.4, Z + (horiz ? off : a), WALL);
+        }
+        for (let a = -l / 2 + 1; a < l / 2; a += 2) colliders.push({ x: X + (horiz ? a : 0), z: Z + (horiz ? 0 : a), r: 1.5 });
+      }
+    }
+    function tower(u, v, r, h) {
+      const X = wx(u), Z = wz(v); at(u, v);
+      cylB(r + 0.35, r + 0.35, 1.0, X, 0, Z, WALL_D, 14); cylB(r, r + 0.25, h, X, 0, Z, WALL, 14);
+      cylB(r + 0.55, r + 0.55, 0.5, X, h, Z, WALL_D, 14); coneB(r + 1.0, r * 1.9, X, h + 0.5, Z, ROOFW, 14); coneB(0.1, 1.5, X, h + 0.5 + r * 1.9, Z, GOLD, 6);
+      for (let k = 0; k < 4; k++) { const a = k * HALF_PI + 0.78; put(new THREE.PlaneGeometry(0.5, 1.3), 0xffffff, 'glass', X + Math.sin(a) * (r + 0.18), h * 0.62, Z + Math.cos(a) * (r + 0.18), 0, a, 0); }
+      colliders.push({ x: X, z: Z, r: r + 0.5 });
+    }
+    run(WU0, WV0, WU1, WV0, 0, -1);                             // utara
+    run(WU0, WV1, WU1, WV1, 0, 1);                              // selatan
+    const GV0 = EAST_GATE.v - EAST_GATE.half, GV1 = EAST_GATE.v + EAST_GATE.half;
+    run(WU1, WV0, WU1, GV0, 1, 0); run(WU1, GV1, WU1, WV1, 1, 0);   // timur (di belakang istana): terbelah oleh Gerbang Timur
+    run(WU0, WV0, WU0, -GAP, -1, 0); run(WU0, GAP, WU0, WV1, -1, 0);   // barat: kiri-kanan gerbang
+    for (const [u, v] of [[WU0, WV0], [WU1, WV0], [WU0, WV1], [WU1, WV1]]) tower(u, v, 4.4, 15);   // menara sudut
+    for (const u of [-24, 8, 40, 72]) for (const v of [WV0, WV1]) tower(u, v, 3.2, 12);             // menara di tembok utara & selatan
+    for (const v of [-34, 0, 34]) tower(WU1, v, 3.2, 12);                                           // timur
+    for (const v of [-42, -18, 18, 42]) tower(WU0, v, 3.2, 12);                                     // barat (mengapit gerbang)
+
+    // ---------- Gerbang Timur: dua menara pengapit + jembatan batu di atas jalan (jalan keluar ke Padang Rumput) ----------
+    { const gv = EAST_GATE.v, ho = EAST_GATE.half + 0.6;
+      tower(WU1, gv - ho, 3.4, 15); tower(WU1, gv + ho, 3.4, 15);
+      const X = wx(WU1), Z = wz(gv), open = ho - 3.4;                  // open = setengah lebar bukaan (antara dinding dalam menara)
+      at(WU1, gv);
+      boxB(WT + 1.8, 2.6, open * 2 + 1.2, X, 6.4, Z, WALL);            // balok lengkung di atas jalan (tinggi bukaan 6.4 m)
+      boxB(WT + 2.3, 0.45, open * 2 + 1.7, X, 9.0, Z, WALL_D);         // bibir atas
+      for (let k = -open + 0.6; k < open; k += 1.9) for (const sd of [-1, 1]) boxB(0.9, 1.1, 0.9, X + sd * (WT / 2 + 0.55), 9.45, Z + k, WALL);   // gigi benteng
+      for (const sd of [-1, 1]) {                                       // panji merah di kedua sisi + lampu di bawah lengkungan
+        box(0.08, 3.6, 1.5, X + sd * (WT / 2 + 1.0), 7.4, Z, 0xa8301f);
+        put(new THREE.PlaneGeometry(1.0, 1.3), 0xffffff, 'glass', X + sd * (WT / 2 + 1.04), 7.4, Z, 0, sd > 0 ? HALF_PI : -HALF_PI, 0); }
+      boxB(0.5, 0.35, 0.5, X, 6.0, Z - open + 0.3, GOLD); boxB(0.5, 0.35, 0.5, X, 6.0, Z + open - 0.3, GOLD);
+    }
+  }
+
+  yield;
+  for (const bk of buckets.values()) {   // satu sel grid per langkah (penggabungan geometri cukup berat)
     for (const [key, mat] of [['solid', solidMat], ['glass', glassMat]]) {
       if (!bk[key].length) continue;
-      const mesh = new THREE.Mesh(mergeGeometries(bk[key]), mat); mesh.castShadow = key === 'solid'; mesh.receiveShadow = true; group.add(mesh);
+      const geo = mergeGeometries(bk[key]); geo.computeBoundingSphere(); geo.computeBoundingBox();   // dihitung sekarang (latar), bukan di frame render pertama
+      const mesh = new THREE.Mesh(geo, mat); mesh.castShadow = key === 'solid'; mesh.receiveShadow = true; mesh.matrixAutoUpdate = false; mesh.updateMatrix(); group.add(mesh);
       bk[key].forEach(g => g.dispose());
     }
-  });
+    yield;
+  }
 
   // ---------- Lantai jalan batu: satu bidang bertekstur (peta jalan digambar di canvas, tepinya halus) ----------
   { const PX = 8, U0 = -60, U1 = 100, V0 = -70, V1 = 70, W = (U1 - U0) * PX, Hh = (V1 - V0) * PX;
     const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
     const cob = mk(W, Hh), cx = cob.getContext('2d'); let seed = 1337; const rr = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     cx.fillStyle = '#6f6a62'; cx.fillRect(0, 0, W, Hh);                              // celah antar batu
-    for (let y = 0, row = 0; y < Hh; y += 5, row++) { const hh = 4; for (let x = -(row % 2) * 4; x < W; ) { const ww = 3.5 + rr() * 5, g = 128 + rr() * 52 | 0; cx.fillStyle = `rgb(${g + 8},${g + 2},${g - 12})`; cx.fillRect(x + 0.5, y + 0.5, ww - 1, hh); x += ww; } }
+    for (let y = 0, row = 0; y < Hh; y += 5, row++) { const hh = 4; for (let x = -(row % 2) * 4; x < W; ) { const ww = 3.5 + rr() * 5, g = 128 + rr() * 52 | 0; cx.fillStyle = `rgb(${g + 8},${g + 2},${g - 12})`; cx.fillRect(x + 0.5, y + 0.5, ww - 1, hh); x += ww; } if (row % 36 === 35) yield; }   // lantai batu digambar bertahap: ±47 ribu persegi panjang di canvas besar
     const mask = mk(W, Hh), mx = mask.getContext('2d'); mx.fillStyle = '#000';
     const P = (u, v) => [(u - U0) * PX, (v - V0) * PX];
-    for (const s of STREETS) { const r = streetRect(s), [a, b] = P(r.u0, r.v0), [c, d] = P(r.u1, r.v1); mx.fillRect(a, b, c - a, d - b); }
+    for (const s of [...STREETS, EAST_ROAD]) { const r = streetRect(s), [a, b] = P(r.u0, r.v0), [c, d] = P(r.u1, r.v1); mx.fillRect(a, b, c - a, d - b); }
     for (const r of PAVE_RECTS) { const [a, b] = P(r.u0, r.v0), [c, d] = P(r.u1, r.v1); mx.fillRect(a, b, c - a, d - b); }
     { const [a, b] = P(PLAZA.u, PLAZA.v); mx.beginPath(); mx.arc(a, b, PLAZA.r * PX, 0, 7); mx.fill(); }
     cx.globalCompositeOperation = 'destination-in'; cx.drawImage(mask, 0, 0);
@@ -222,3 +290,6 @@ export function buildCity({ colliders, COARSE = false }) {
 
   return { group };
 }
+
+// Versi sinkron (kompatibel dengan pemanggil lama): jalankan generator sampai selesai.
+export function buildCity(opts) { const it = buildCityGen(opts); let r; while (!(r = it.next()).done); return r.value; }

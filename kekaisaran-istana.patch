@@ -1,0 +1,109 @@
+diff -ruN a/kekaisaran-layout.js b/kekaisaran-layout.js
+--- a/kekaisaran-layout.js	2026-11-03 03:27:10.680257249 +0000
++++ b/kekaisaran-layout.js	2026-11-03 03:27:10.683053718 +0000
+@@ -1,7 +1,7 @@
+ // ============================================================
+ //  KOTA KEKAISARAN — data tata letak (murni angka, tanpa THREE)
+ //  Kota berbentuk SEGI LIMA beraturan di ujung Ladang Sawah Gemah Ripah, dikelilingi tembok dengan 5 gerbang, 5 distrik,
+-//  jalan lingkar, dan istana di tengahnya (tapak istana disiapkan, bangunannya BELUM dibuat).
++//  jalan lingkar, dan istana di tengahnya (istana kekaisaran berdiri di tapaknya).
+ //  Tahap sekarang: tembok + 5 gerbang + jalan + Distrik 1 (Military Quarter) + Distrik 2 (Merchant Quarter) + Distrik 3 (Noble Quarter) + Distrik 4 (Academy Quarter) + Distrik 5 (Administration Quarter) lengkap TANPA NPC. Kelima distrik sudah dibangun.
+ //  Dipakai oleh kekaisaran.js (isi kota), world.js (chunk), forest-layout.js (batas dunia) dan game.js (pesan masuk).
+ //
+@@ -20,7 +20,7 @@
+ export const WALL = { t: 3.8, h: 9.5, towerR: 5.6, towerH: 16 };  // tembok: tebal, tinggi; menara di tiap titik sudut
+ export const RING = { r: 66, w: 9 };                              // jalan lingkar mengelilingi istana
+ export const PLAZA_R = 58;                                        // lantai batu di dalam jalan lingkar (halaman istana)
+-export const PALACE_SITE = { r: 36 };                             // tapak istana (belum dibangun)
++export const PALACE_SITE = { r: 36 };                             // tapak istana (Istana Kekaisaran)
+ export const ROAD_W = 9;                                          // lebar jalan radial ke gerbang samping
+ export const AVENUE_W = 15;                                       // lebar jalan raya Gerbang Utama -> istana
+ export const GATES = [   // gerbang di tengah sisi k (sisi k = antara titik sudut k dan k+1)
+diff -ruN a/kekaisaran.js b/kekaisaran.js
+--- a/kekaisaran.js	2026-11-03 03:27:10.679806034 +0000
++++ b/kekaisaran.js	2026-11-03 03:27:10.682721534 +0000
+@@ -4,7 +4,7 @@
+ // ============================================================
+ //  Membangun Kota Kekaisaran (satu chunk, dipanggil dari world.js).
+ //  Isi: tembok segi lima + 5 menara sudut + 5 gerbang (Gerbang Utama terbuka, 4 lainnya tertutup), jalan lingkar & 5 jalan radial,
+-//  jalan raya Gerbang Utama (saluran air + jembatan), halaman & tapak istana (BELUM ada istananya), dan DISTRIK 1 — Military Quarter
++//  jalan raya Gerbang Utama (saluran air + jembatan), halaman & ISTANA KEKAISARAN, dan DISTRIK 1 — Military Quarter
+ //  (lapangan apel, markas komando, 4 barak, gudang senjata, kandang, pandai besi, rumah perwira, 2 lapangan latihan, pagar kayu, saluran air).
+ //  DISTRIK 2 — Merchant Quarter (alun-alun pasar bundar dengan kios berwarna & air mancur, 8 toko, penginapan, kedai, bank, rumah timbang, gudang dagang, Balai Serikat Pedagang).
+ //  DISTRIK 3 — Noble Quarter (taman formal berpagar tanaman dengan air mancur, 6 kediaman bangsawan, Kediaman Adipati, kapel keluarga, rumah kaca).
+@@ -256,7 +256,7 @@
+     const a = (k * 90) * D2R, ox = Math.cos(a) * (PALACE_SITE.r - 3.2), oz = Math.sin(a) * (PALACE_SITE.r - 3.2), g = new THREE.Group(); g.position.set(ox, 0, oz); city.add(g);
+     mesh(box(1.6, 0.6, 1.6), M.plinth, 0, 0.3, 0, g); mesh(box(0.9, 7, 0.9), M.hall, 0, 4.1, 0, g); mesh(new THREE.ConeGeometry(0.75, 1.1, 4).rotateY(Math.PI / 4), M.gold, 0, 8.15, 0, g); col(ox, oz, 1.0);
+   }
+-  signPost(-PALACE_SITE.r - 8, 7, -PALACE_SITE.r - 60, 7, [{ text: 'ISTANA KEKAISARAN', sub: 'Tapak istana — belum dibangun' }], 1.2, 3.2, 1.0);
++  signPost(-PALACE_SITE.r - 8, 7, -PALACE_SITE.r - 60, 7, [{ text: 'ISTANA KEKAISARAN', sub: 'Kediaman Kaisar' }], 1.2, 3.2, 1.0);
+   // papan nama di Gerbang Utama (arah jalan)
+   signPost(-APOTHEM + 6, 11, -APOTHEM - 30, 11, [{ text: 'KOTA KEKAISARAN', sub: 'Selamat datang, pengelana' }, { text: 'Distrik 1 · Military Quarter', sub: 'Lurus, melewati istana' }], 1.15, 3.0, 1.5);
+   for (const sd of [-1, 1]) lamp(-APOTHEM - 6, sd * (GATE_MAIN.gap / 2 + 1.6));
+@@ -1093,6 +1093,66 @@
+   yield;
+   // ======================================================================
+ 
++  // ======================================================================
++  //  ISTANA KEKAISARAN (pusat kota, tapak r = 36): aula utama + menara gerbang bersepuh, dua sayap, aula takhta berkubah di belakang, 4 menara sudut
++  //  Menghadap Gerbang Utama (-x). Kerangka istana: lx = lateral (+z kota), lz = ke depan (-x kota) dari pusat istana (0,0).
++  // ======================================================================
++  const pw = (lx, lz) => ({ x: -lz, z: lx });
++  const PI_ = Math.PI;
++  const winRow = (g, xs, y, z, w = 1.0, h = 2.0, ry = 0) => { for (const x of xs) mesh(new THREE.PlaneGeometry(w, h), M.window, x, y, z, g, false).rotation.y = ry; };
++  { // ---- aula utama ----
++    const mp = pw(0, -2), MB = { x: mp.x, z: mp.z, w: 34, d: 26, face: PI_ }, g = place(MB.x, MB.z, MB.face), w = MB.w, d = MB.d, H = 14;
++    const y0 = shell(g, w, d, H, 8, { wall: M.hall, roof: M.roofBlue, ov: 1.6, chimney: false, beams: false, windows: false });
++    mesh(box(w + 0.5, 0.4, d + 0.5), M.plinth, 0, y0 + 7.2, 0, g, false); mesh(box(w + 0.7, 0.5, d + 0.7), M.plinth, 0, y0 + H - 0.1, 0, g, false);
++    const fxs = [-15.2, -11.4, -7.6, 7.6, 11.4, 15.2], rows = [3.4, 7.8, 11.0];
++    for (const r of rows) { winRow(g, fxs, y0 + r, d / 2 + 0.07, 1.0, 2.0); winRow(g, [...fxs, -3.8, 0, 3.8], y0 + r, -d / 2 - 0.07, 1.0, 2.0, PI_); }
++    for (const r of rows) for (const sd of [-1, 1]) for (const z of [-9, -4.5, 0, 4.5, 9]) mesh(new THREE.PlaneGeometry(1.0, 2.0), M.window, sd * (w / 2 + 0.07), y0 + r, z, g, false).rotation.y = sd * PI_ / 2;
++    // menara gerbang (keep) di depan
++    mesh(boxUV(14, 28, 9, 0.5), M.hall, 0, 14, d / 2 + 1.0, g); mesh(box(15.4, 0.9, 10.4), M.plinth, 0, 28.3, d / 2 + 1.0, g);
++    mesh(boxUV(10.4, 9, 7, 0.5), M.hall, 0, 33, d / 2 + 1.0, g); mesh(box(11.6, 0.8, 8.2), M.plinth, 0, 37.6, d / 2 + 1.0, g);
++    mesh(new THREE.ConeGeometry(8.2, 17, 4).rotateY(PI_ / 4), M.roofBlue, 0, 46.6, d / 2 + 1.0, g); mesh(cyl(0.1, 0.1, 6, 6), M.gold, 0, 56.6, d / 2 + 1.0, g, false); mesh(new THREE.SphereGeometry(0.5, 8, 6), M.gold, 0, 55.4, d / 2 + 1.0, g, false);
++    // pintu agung + portico
++    mesh(extrude(doorShape(3.2, 5.6), 0.5, false), M.woodDark, 0, 0, d / 2 + 5.5, g, false); for (const y of [2.0, 4.6]) mesh(box(6.6, 0.22, 0.25), M.iron, 0, y, d / 2 + 5.62, g, false); mesh(box(0.2, 8.6, 0.25), M.iron, 0, 4.3, d / 2 + 5.62, g, false);
++    for (const x of [-8.4, -4.8, 4.8, 8.4]) { columnAt(g, x, 0, d / 2 + 6.8, 10.2, 0.55); bcol(MB, x, d / 2 + 6.8, 0.7); }
++    mesh(box(20, 0.9, 3.4), M.plinth, 0, 11.4, d / 2 + 6.8, g); { const tri = new THREE.Shape(); tri.moveTo(-10, 0); tri.lineTo(10, 0); tri.lineTo(0, 3.6); mesh(new THREE.ExtrudeGeometry(tri, { depth: 0.5, bevelEnabled: false }), M.hall, 0, 11.85, d / 2 + 7.8, g); }
++    { const em = new THREE.Mesh(new THREE.CircleGeometry(1.5, 28), crownEmM); em.position.set(0, 13.4, d / 2 + 8.32); g.add(em); }
++    plaque(g, 'ISTANA KEKAISARAN', null, 0, 11.4, d / 2 + 8.56, 8.6, 0.8);
++    mesh(box(20, 0.25, 3.4), M.plinth, 0, 0.12, d / 2 + 6.8, g, false);
++    for (const y of [9, 15, 21]) { winRow(g, [-3.2, 3.2], y0 + y, d / 2 + 5.52, 1.2, 2.6); }
++    mesh(new THREE.CircleGeometry(2.0, 28), M.window, 0, 25.5, d / 2 + 5.52, g, false);
++    { const em = new THREE.Mesh(new THREE.CircleGeometry(2.0, 28), crownEmM); em.position.set(0, 33.2, d / 2 + 4.52); g.add(em); }
++    for (const sx of [-1, 1]) { banner(g, 'palace', sx * 9.5, y0 + 7.0, d / 2 + 0.14, 1.5, 5.0); banner(g, 'palace', sx * 13.3, y0 + 7.0, d / 2 + 0.14, 1.5, 5.0); banner(g, 'palace', sx * 3.2, y0 + 17.0, d / 2 + 5.53, 1.5, 6.0); mesh(box(0.25, 0.4, 0.25), M.lantern, sx * 10.7, y0 + 2.0, d / 2 + 8.6, g, false); }
++    for (let i = 0; i < 5; i++) { const h = 0.13 * (5 - i); mesh(box(18 + i * 2.0, h, 1.4), M.plinth, 0, h / 2, d / 2 + 8.6 + i * 1.4, g); }
++    for (const sx of [-1, 1]) for (const zz of [d / 2 - 0.4, -d / 2 + 0.4]) { const t = new THREE.Group(); t.position.set(sx * (w / 2 + 0.2), 0, zz); g.add(t); roundTower(t, 3.4, 24, 10.5, M.roofBlue); mesh(cyl(0.07, 0.07, 3, 5), M.gold, sx * (w / 2 + 0.2), 24 + 10.5 + 1.5, zz, g, false); bcol(MB, sx * (w / 2 + 0.2), zz, 4.0); }
++    colRect(MB, 0.4); { const tp = bp(MB, 0, d / 2 + 1.0); colRect({ x: tp.x, z: tp.z, w: 14, d: 9, face: PI_ }, 0.3); } { const sp = bp(MB, 0, d / 2 + 6.4); colRect({ x: sp.x, z: sp.z, w: 6.4, d: 1.4, face: PI_ }, 0); }
++  }
++  yield;
++  for (const sdn of [-1, 1]) { // ---- dua sayap ----
++    const wp = pw(sdn * 23, -4), WB = { x: wp.x, z: wp.z, w: 12, d: 20, face: PI_ }, g = place(WB.x, WB.z, WB.face), w = WB.w, d = WB.d, H = 11;
++    const y0 = shell(g, w, d, H, 6.5, { wall: M.hall, roof: M.roofBlue, ov: 1.3, chimney: false, beams: false, windows: false });
++    mesh(box(w + 0.4, 0.35, d + 0.4), M.plinth, 0, y0 + 5.6, 0, g, false);
++    for (const r of [3.2, 6.8, 9.4]) { winRow(g, [-3.8, 0, 3.8], y0 + r, d / 2 + 0.07, 1.0, 1.9); winRow(g, [-3.8, 0, 3.8], y0 + r, -d / 2 - 0.07, 1.0, 1.9, PI_); for (const s2 of [-1, 1]) for (const z of [-7, -2.3, 2.3, 7]) mesh(new THREE.PlaneGeometry(1.0, 1.9), M.window, s2 * (w / 2 + 0.07), y0 + r, z, g, false).rotation.y = s2 * PI_ / 2; }
++    door(g, d, y0, 1.7, 3.0); banner(g, 'palace', 0, y0 + 6.4, d / 2 + 0.14, 1.3, 3.4);
++    mesh(box(4.4, 0.4, 1.6), M.plinth, 0, 0.2, d / 2 + 0.9, g, false);
++    const tx = sdn * 5.6; { const t = new THREE.Group(); t.position.set(tx, 0, d / 2 - 0.3); g.add(t); roundTower(t, 2.4, 17, 7, M.roofBlue); bcol(WB, tx, d / 2 - 0.3, 3.0); }
++    colRect(WB, 0.4);
++  }
++  { // ---- aula takhta berkubah di belakang ----
++    const rp = pw(0, -20), RB = { x: rp.x, z: rp.z, w: 20, d: 10, face: PI_ }, g = place(RB.x, RB.z, RB.face), w = RB.w, d = RB.d, H = 11;
++    const y0 = shell(g, w, d, H, 6, { wall: M.hall, roof: M.roofBlue, ov: 1.2, chimney: false, beams: false, windows: false });
++    for (const r of [3.4, 7.2]) { winRow(g, [-7, -3.5, 0, 3.5, 7], y0 + r, d / 2 + 0.07, 1.0, 2.0); winRow(g, [-7, -3.5, 0, 3.5, 7], y0 + r, -d / 2 - 0.07, 1.0, 2.0, PI_); }
++    mesh(cyl(6.3, 6.5, 3.2, 24), M.hall, 0, y0 + H + 6.0, 0, g);
++    for (let i = 0; i < 10; i++) { const a = i * PI_ / 5; mesh(new THREE.PlaneGeometry(1.0, 2.0), M.window, Math.cos(a) * 6.52, y0 + H + 6.1, Math.sin(a) * 6.52, g, false).rotation.y = PI_ / 2 - a; }
++    mesh(cyl(6.7, 6.7, 0.35, 24), M.gold, 0, y0 + H + 7.75, 0, g, false); mesh(new THREE.SphereGeometry(6.1, 26, 14, 0, PI_ * 2, 0, PI_ / 2), domeM, 0, y0 + H + 7.9, 0, g);
++    mesh(cyl(1.0, 1.3, 1.6, 10), M.hall, 0, y0 + H + 14.4, 0, g); mesh(new THREE.ConeGeometry(1.2, 2.4, 8), M.gold, 0, y0 + H + 16.4, 0, g, false); mesh(cyl(0.07, 0.07, 3.0, 5), M.gold, 0, y0 + H + 18.4, 0, g, false);
++    colRect(RB, 0.4); bcol(RB, 0, 0, 6.6);
++  }
++  // ---- halaman depan: jalur ke tangga, lampu, singa penjaga ----
++  decalStrip(-RING.r + 6, 0, -25, 0, 12, M.cobble, 4, 0.33);
++  for (const x of [-56, -46, -36]) for (const sd of [-1, 1]) lamp(x, sd * 7.4);
++  for (const sd of [-1, 1]) { const gx = -24.6, gz = sd * 10.5, g = new THREE.Group(); g.position.set(gx, 0, gz); city.add(g);
++    mesh(box(2.0, 1.2, 2.6), M.plinth, 0, 0.6, 0, g); mesh(box(1.1, 0.9, 1.9), M.hall, 0, 1.65, 0, g); mesh(new THREE.SphereGeometry(0.62, 10, 8), M.hall, -0.5, 2.3, 0, g); mesh(box(0.35, 0.5, 0.35), M.gold, 0.1, 2.4, 0, g, false); col(gx, gz, 1.4); }
++  yield;
+   // ---------- patok lahan kosong (hanya jika masih ada distrik yang belum dibangun) ----------
+   const stakes = [];
+   for (const g of GATES) {   // patok di tepi jalan radial yang berbatasan dengan distrik yang belum dibangun

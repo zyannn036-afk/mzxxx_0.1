@@ -1,0 +1,97 @@
+--- /mnt/user-data/uploads/game.js	2026-11-08 03:25:51.716472000 +0000
++++ game.js	2026-11-08 03:45:55.415964083 +0000
+@@ -2309,9 +2309,49 @@
+     lootOnDefeat(e); scene.remove(e.g); enemies.splice(enemies.indexOf(e), 1); shake = 0.9;
+   }
+ }
++// ---------- Kaelen (Kota Dungeon): duel memakai SISTEM game.js ----------
++// kaelen-battle.js hanya mengurus AI / telegraf / fase Kaelen. Serangan dasar, 6 skill, Dark Mode, Shift = roll (kebal), HP (P.hp) & ramuan (H) milik game.js.
++// Kaelen didaftarkan sebagai musuh di array `enemies` selama duel, jadi semua serangan & skill yang memeriksa `enemies` otomatis mengenainya.
++let kaelenFoe = null;
++const kaelenOn = () => !!kaelenFoe;
++function kaelenSync() { const KB = globalThis.KAELEN_BATTLE; if (KB && kaelenFoe) { KB.enemy.getPosition(kaelenFoe.g.position); kaelenFoe.hp = KB.enemy.hp; } }
++function kaelenHurt(n, force) {   // pukulan/skill pemain -> Kaelen. force >= 20 (tebasan besar / skill) = berat: lebih cepat membuatnya terhuyung
++  const KB = globalThis.KAELEN_BATTLE; if (!KB) return false;
++  KB.enemy.takeDamage(n, { heavy: force >= 20 || n >= 45 }); kaelenSync(); return false;
++}
++function kaelenGuard() {   // duel dibatalkan (Kaelen menyerah) kalau pemain keluar dari Kota Dungeon / masuk guild / masuk portal / kalah di tempat lain
++  const KB = globalThis.KAELEN_BATTLE;
++  if (KB && KB.isActive() && (state !== 'world' || !inKotaDungeon || inGuild || dgBusy)) KB.cancel();
++}
++globalThis.KAELEN_HOST = {
++  dmgScale: 0.55,   // 1 = damage mentah Kaelen (HP pemain 100). Naikkan kalau terlalu mudah, turunkan kalau terlalu sakit
++  getPlayer: () => ({ x: player.position.x, y: player.position.y, z: player.position.z, face: P.face }),
++  mobile: () => document.body.classList.contains('touch'),
++  inv: () => P.inv > 0,   // roll / habis kena / skill kebal
++  swing: () => (P.atk > 0 && !P.cross) ? P.dur * 0.38 - (P.dur - P.atk) : null,   // detik sampai serangan dasar "mengenai" (negatif = sudah lewat); dipakai untuk menangkis tebasan Kaelen
++  attacking: () => P.atk > 0 || P.vs > 0 || P.sl > 0 || P.sm > 0 || P.pt > 0 || P.ex > 0,
++  hurt(n, { dirX = 0, dirZ = 0, heavy = false } = {}) {   // serangan Kaelen -> hurtPlayer game.js (perisai BF ikut berlaku)
++    if (state !== 'world') return 'skip';
++    const lethal = !BF.on && P.hp - n <= 0;
++    hurtPlayer(lethal ? Math.max(0, P.hp - 1) : n);   // duel: tidak mati sungguhan (tidak diseret ke layar kalah / dunia luar), cukup tumbang
++    if (P.inv > 0) P.push.set(dirX * (heavy ? 7 : 3.5), 0, dirZ * (heavy ? 7 : 3.5));   // terpental (mekanisme push milik game.js)
++    return lethal ? 'down' : 'hit';
++  },
++  heal: f => { P.hp = Math.min(P.max, P.hp + P.max * f); },
++  onShake: k => { shake = Math.max(shake, 0.45 * k); },
++  onStart(e) {
++    kaelenFoe = { kaelen: true, g: new THREE.Object3D(), r: 0.7, hp: e.hp, maxHp: e.maxHp, kv: new THREE.Vector3(), stun: 0, wind: 0, flash: 0, dying: false, col: 0xffd45a };
++    kaelenSync(); enemies.push(kaelenFoe);
++  },
++  onEnd({ result }) {
++    if (kaelenFoe) { const i = enemies.indexOf(kaelenFoe); if (i >= 0) enemies.splice(i, 1); }
++    kaelenFoe = null; P.push.set(0, 0, 0);
++    if (result !== 'flee') P.hp = P.max;   // menang / tumbang: bangkit dengan HP penuh
++  },
++};
+ function hurtEnemy(e, n, dir, force = 0, src = '') { // dir: arah dorong (ternormalisasi), force: kecepatan awal knockback, src: asal serangan ('s3' / 's6' = skill cahaya). Mengembalikan true bila pukulan DITANGKIS (kebal)
+   if (e.dying) return false; // sedang adegan slowmo
+-  n = Math.round(n * swordMul);   // pedang yang dipakai (tas item) menambah semua damage pemain
++  n = Math.round(n * swordMul); if (e.kaelen) return kaelenHurt(n, force);   // pedang yang dipakai (tas item) menambah semua damage pemain
+   if (e.lightImmune && (src === 's3' || src === 's6')) { immuneFx(e); return true; } // Seraphim kebal elemen cahaya: skill 3 (Summon Blade) & skill 6 (Excalibur)
+   e.hp -= n; e.flash = 0.12; if (e.wild || e.xroom != null) e.aggro = true; // monster hutan yang dipukul langsung marah
+   if (dir && force) { e.kv.set(dir.x, 0, dir.z).multiplyScalar(force * (e.dragon || e.golem ? 0.1 : e.boss ? 0.3 : 1)); e.stun = e.dragon || e.golem ? 0 : e.boss ? 0.15 : 0.35; e.wind = 0; e.g.scale.setScalar(1); }
+@@ -2556,6 +2596,7 @@
+ }
+ function updateEnemies(dt) {
+   for (const e of [...enemies]) {
++    if (e.kaelen) { kaelenSync(); continue; }   // Kaelen digerakkan kaelen-battle.js
+     if (e.dying) { dyingTick(e); if (e.mutant) mutantPose(e, dt, true); else if (e.fireboss) firePose(e, dt, true); else if (e.iceboss) icePose(e, dt, true); else if (e.knight) knightPose(e, dt, true); else if (e.caveboss) cavePose(e, dt, true); continue; }
+     const d = player.position.clone().sub(e.g.position).setY(0), dist = d.length();
+     d.normalize();
+@@ -2783,7 +2824,7 @@
+   else { P.cross = false; P.dur = P.atk = ATK_T; P.hand = dkGs.on ? 1 : -P.hand; audio.sfx('sword'); } // bergantian kanan-kiri
+ }
+ function roll() {
+-  if (QT.phase || IT.open || state !== 'play' || P.air || P.trap > 0 || P.hs > 0 || P.roll > 0 || P.atk > 0 || P.vs > 0 || P.sl > 0 || P.sm > 0 || P.pt > 0 || P.ex > 0) return;
++  if (QT.phase || IT.open || (state !== 'play' && !(state === 'world' && kaelenOn())) || P.air || P.trap > 0 || P.hs > 0 || P.roll > 0 || P.atk > 0 || P.vs > 0 || P.sl > 0 || P.sm > 0 || P.pt > 0 || P.ex > 0) return;
+   P.roll = 0.45; P.inv = Math.max(P.inv, 0.5);
+   P.rv.set(Math.sin(P.face), 0, Math.cos(P.face));
+ }
+@@ -5776,7 +5817,7 @@
+   P.drawT = 0; P.runT = 0; P.v.set(0, 0, 0); stick.x = stick.y = 0;
+   IT.open = true; world.aula.isabelChat(true); itShow('menu');
+ }
+-const talkAct = () => { if (QT.phase || IT.open || GU.open) return; const gs = guildSpotNow(); if (state === 'world' && queenNear()) startKneel(); else if (isabelNear()) isabelMenu(); else if (bedNow()) startSleep(); else if (gs) guildTalk(gs.id); else world.talk(); };
++const talkAct = () => { if (QT.phase || IT.open || GU.open) return; if (kaelenOn()) return; { const KB = globalThis.KAELEN_BATTLE; if (state === 'world' && KB && KB.nearChallenge()) { KB.start(); return; } } const gs = guildSpotNow(); if (state === 'world' && queenNear()) startKneel(); else if (isabelNear()) isabelMenu(); else if (bedNow()) startSleep(); else if (gs) guildTalk(gs.id); else world.talk(); };
+ function qtTick(dt) {
+   itWatch();
+   if (!inAula) QT.hinted = false;
+@@ -6215,7 +6256,7 @@
+     } else {
+       if (P.atk > 0 && !P.cross) { const pp = 1 - P.atk / P.dur; if (pp > 0.15 && pp < 0.55) player.position.addScaledVector(new THREE.Vector3(Math.sin(P.face), 0, Math.cos(P.face)), 2.6 * dt); } // langkah maju kecil saat mengayun
+       if (moving) { mv.normalize(); if (P.atk <= 0) P.face = Math.atan2(mv.x, mv.z); }
+-      P.v.lerp(moving ? mv.multiplyScalar(P.atk > 0 ? 1.5 : 5.5 * (PT.buff > 0 ? PT.runMul : 1) * (state === 'world' && (keys.ShiftLeft || keys.ShiftRight) ? 1.7 : 1)) : ZERO, 1 - Math.exp(-dt * 10));
++      P.v.lerp(moving ? mv.multiplyScalar(P.atk > 0 ? 1.5 : 5.5 * (PT.buff > 0 ? PT.runMul : 1) * (state === 'world' && !kaelenOn() && (keys.ShiftLeft || keys.ShiftRight) ? 1.7 : 1)) : ZERO, 1 - Math.exp(-dt * 10));
+       player.position.addScaledVector(P.v, dt);
+     }
+     P.hs = Math.max(0, P.hs - dt);
+@@ -6248,7 +6289,7 @@
+     else { if (P.drawT > 0) P.drawT -= dt; P.runT = moving && P.roll <= 0 ? P.runT + dt : 0; if (P.runT > RUN_SHEATH) P.drawT = 0; }
+     setDrawn(P.atk > 0 || P.drawT > 0);
+     P.heavy += ((P.drawT > 0 ? 1 : 0.3) - P.heavy) * (1 - Math.exp(-dt * (P.drawT > 0 ? 8 : 1.5))); // napas berat -> ringan
+-    updateEnemies(dt); collidePlayer(); // musuh bergerak/terpental lalu cek tabrakan lagi
++    updateEnemies(dt); collidePlayer(); kaelenGuard(); // musuh bergerak/terpental lalu cek tabrakan lagi
+     loot.update(dt, state);   // item jatuhan, peti hadiah, tombol tas
+     if (exploreMode) exploreTick(dt);   // dungeon jelajah: cahaya, kristal, gerbang bos, hitung musuh
+     if (state === 'world') wildSpawnTick(dt); // monster liar di hutan: muncul acak, hilang kalau jauh, darah pulih saat aman

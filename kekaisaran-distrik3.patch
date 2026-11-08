@@ -1,0 +1,273 @@
+diff -ruN a/game.js b/game.js
+--- a/game.js	2026-11-02 22:15:30.443659729 +0000
++++ b/game.js	2026-11-02 22:15:30.445481298 +0000
+@@ -1826,12 +1826,12 @@
+   else if (inSawah && sd > -1) inSawah = false;
+   { // Kota Kekaisaran (segi lima): pesan masuk kota & nama distrik saat berpindah
+     const kd = kekaisaranDist(px, pz), dn = kd < -2 ? districtAt(px, pz) : -1;
+-    if (!inKekaisaran && dn >= 0) { inKekaisaran = true; kekDistrict = -1; say('🏯 ' + KEKAISARAN.name + '\nKota segi lima dengan 5 distrik & istana di tengah\nBaru ' + DISTRICTS[0].name + ' (' + DISTRICTS[0].sub + ') yang selesai dibangun'); }
++    if (!inKekaisaran && dn >= 0) { inKekaisaran = true; kekDistrict = -1; say('🏯 ' + KEKAISARAN.name + '\nKota segi lima dengan 5 distrik & istana di tengah\nSudah selesai: ' + DISTRICTS.filter(q => q.built).map(q => q.name + ' (' + q.sub + ')').join(', ')); }
+     else if (inKekaisaran && kd > 6) inKekaisaran = false;
+     if (inKekaisaran && dn !== kekDistrict && dn >= 0) {
+       kekDistrict = dn;
+       if (dn === 0) say('👑 Halaman Istana\nTapak Istana Kekaisaran (belum dibangun)');
+-      else { const d = DISTRICTS[dn - 1]; say((d.n === 1 ? '⚔️ ' : d.n === 2 ? '🛍️ ' : '🚧 ') + d.name + ' — ' + d.sub + (d.built ? '' : '\nSegera dibangun')); }
++      else { const d = DISTRICTS[dn - 1]; say((d.n === 1 ? '⚔️ ' : d.n === 2 ? '🛍️ ' : d.n === 3 ? '🏰 ' : '🚧 ') + d.name + ' — ' + d.sub + (d.built ? '' : '\nSegera dibangun')); }
+     }
+   }
+   if (CITY.open && !churchBusy) { // pintu katedral (luar) & pintu keluar (dalam)
+diff -ruN a/index.html b/index.html
+--- a/index.html	2026-11-02 22:15:30.443633089 +0000
++++ b/index.html	2026-11-02 22:15:30.445454568 +0000
+@@ -20,7 +20,7 @@
+   <div id="obj" hidden><i id="objA">▲</i><span id="objD"></span><small>🕳️ Lubang Dungeon</small></div>
+   <div id="boss" hidden><span>Malzareth, Penyihir Kegelapan</span><div class="bar"><i id="bossbar"></i></div></div>
+   <div id="pl"><b>Louis</b><div class="bar hp"><i id="hpbar"></i></div></div>
+-  <div id="help">WASD gerak · Spasi / Klik serang · Shift berguling (lari di dunia luar) · E mengobrol dengan warga · 1 2 3 4 skill · C ganti kamera · Mouse putar & naik-turun kamera 360° · Roll mouse zoom · F layar penuh · Esc pengaturan · 🌲 Di hutan ada slime & goblin liar: lawan dengan serangan & skill · 🏰 Masuk istana lewat gerbang di ujung jalan utama kota · 🌾 Gerbang Timur kota menuju Padang Rumput, lalu terus ke timur sampai Ladang Sawah dan Kota Kekaisaran (baru Distrik 1 & 2)</div>
++  <div id="help">WASD gerak · Spasi / Klik serang · Shift berguling (lari di dunia luar) · E mengobrol dengan warga · 1 2 3 4 skill · C ganti kamera · Mouse putar & naik-turun kamera 360° · Roll mouse zoom · F layar penuh · Esc pengaturan · 🌲 Di hutan ada slime & goblin liar: lawan dengan serangan & skill · 🏰 Masuk istana lewat gerbang di ujung jalan utama kota · 🌾 Gerbang Timur kota menuju Padang Rumput, lalu terus ke timur sampai Ladang Sawah dan Kota Kekaisaran (baru Distrik 1-3)</div>
+   <div id="msg">Memuat karakter...</div>
+   <button id="again" hidden>↻ Main Lagi</button>
+   <button id="exit" hidden>🌿 Keluar Dungeon</button>
+diff -ruN a/kekaisaran-layout.js b/kekaisaran-layout.js
+--- a/kekaisaran-layout.js	2026-11-02 22:15:30.443616941 +0000
++++ b/kekaisaran-layout.js	2026-11-02 22:15:30.445436736 +0000
+@@ -2,7 +2,7 @@
+ //  KOTA KEKAISARAN — data tata letak (murni angka, tanpa THREE)
+ //  Kota berbentuk SEGI LIMA beraturan di ujung Ladang Sawah Gemah Ripah, dikelilingi tembok dengan 5 gerbang, 5 distrik,
+ //  jalan lingkar, dan istana di tengahnya (tapak istana disiapkan, bangunannya BELUM dibuat).
+-//  Tahap sekarang: tembok + 5 gerbang + jalan + Distrik 1 (Military Quarter) + Distrik 2 (Merchant Quarter) lengkap TANPA NPC. Distrik 3-5 baru berupa lahan kosong bertanda.
++//  Tahap sekarang: tembok + 5 gerbang + jalan + Distrik 1 (Military Quarter) + Distrik 2 (Merchant Quarter) + Distrik 3 (Noble Quarter) lengkap TANPA NPC. Distrik 4-5 baru berupa lahan kosong bertanda.
+ //  Dipakai oleh kekaisaran.js (isi kota), world.js (chunk), forest-layout.js (batas dunia) dan game.js (pesan masuk).
+ //
+ //  KERANGKA KOORDINAT KOTA (lokal): x = ke depan (searah jalan ladang, "utara" di gambar denah), z = ke kanan (sisi kanan saat menghadap timur = "timur" di gambar).
+@@ -34,7 +34,7 @@
+ export const DISTRICTS = [
+   { n: 1, id: 'militer',    name: 'Distrik 1', sub: 'Military Quarter',       built: true  },
+   { n: 2, id: 'pedagang',   name: 'Distrik 2', sub: 'Merchant Quarter',       built: true  },
+-  { n: 3, id: 'bangsawan',  name: 'Distrik 3', sub: 'Noble Quarter',          built: false },
++  { n: 3, id: 'bangsawan',  name: 'Distrik 3', sub: 'Noble Quarter',          built: true  },
+   { n: 4, id: 'akademi',    name: 'Distrik 4', sub: 'Academy Quarter',        built: false },
+   { n: 5, id: 'administrasi', name: 'Distrik 5', sub: 'Administration Quarter', built: false },
+ ];
+@@ -205,3 +205,46 @@
+   const dx = x * E2.x + z * E2.z, dv = x * N2.x + z * N2.z; if (dx > D2.avenue.u0 - 2 && dx < D2.avenue.u1 + 4 && Math.abs(dv) < D2.avenue.w / 2 + 2 + pad) return true;
+   return false;
+ }
++
++// ============================================================
++//  DISTRIK 3 — NOBLE QUARTER (kerangka lokal)
++//  Wilayah: baji antara jalan radial Gerbang Timur (φ = 108°) dan Gerbang Barat (φ = 180°), dari jalan lingkar sampai tembok.
++//  Koordinat distrik (u, v): u = menjauhi istana sepanjang sumbu 144°, v = ke samping (+v = searah φ yang lebih besar).
++// ============================================================
++const A3 = 144 * D2R, E3 = { x: Math.cos(A3), z: Math.sin(A3) }, N3 = { x: -Math.sin(A3), z: Math.cos(A3) };
++export const d3p = (u, v) => ({ x: u * E3.x + v * N3.x, z: u * E3.z + v * N3.z });
++export const d3Face = (du, dv) => Math.atan2(du * E3.z + dv * N3.z, du * E3.x + dv * N3.x);
++export function inD3(x, z, m = 0) {
++  if (!insidePoly(x, z, WALL.t / 2 + 0.4 + m)) return false;
++  if (Math.hypot(x, z) < RING.r + RING.w / 2 + m) return false;
++  if (radialSigned(x, z, 108) < ROAD_W / 2 + m) return false;
++  if (radialSigned(x, z, 180) > -(ROAD_W / 2 + m)) return false;
++  return true;
++}
++export const D3 = {
++  avenue: { w: 11, u0: RING.r, u1: 150 },
++  garden: { u: 108, v: 0, r: 18, hedgeR: 14.2 },                                  // taman formal bundar: pagar tanaman berpintu 4, petak bunga, air mancur
++  buildings: [
++    { id: 'adipati',  kind: 'manor',   name: 'Kediaman Adipati',   u: 152, v: 0,   w: 26, d: 13, to: [-1, 0], grand: true },
++    { id: 'kapel',    kind: 'chapel',  name: 'Kapel Keluarga',     u: 122, v: -57, w: 10, d: 14, to: [-0.3, 1] },
++    { id: 'rumahkaca', kind: 'conserv', name: 'Rumah Kaca',        u: 120, v: 57,  w: 14, d: 9,  to: [-0.3, -1] },
++  ],
++  ring: { r: 40, angles: [-132, -90, -50, 50, 90, 132], w: 16, d: 10 },           // enam kediaman bangsawan mengelilingi taman
++  names: ['Kediaman Baron', 'Kediaman Viscount', 'Kediaman Graf', 'Kediaman Marquis', 'Kediaman Countess', 'Kediaman Duke'],
++};
++D3.mansions = D3.ring.angles.map((deg, i) => {
++  const a = deg * D2R, u = D3.garden.u + D3.ring.r * Math.cos(a), v = D3.ring.r * Math.sin(a);
++  return { id: 'kediaman-' + (i + 1), kind: 'manor', name: D3.names[i], u, v, w: D3.ring.w, d: D3.ring.d, to: [D3.garden.u - u, -v], variant: i % 3 };
++});
++for (const b of [...D3.buildings, ...D3.mansions]) { const p = d3p(b.u, b.v); b.x = p.x; b.z = p.z; b.face = d3Face(b.to[0], b.to[1]); }
++export const D3_FOOTPRINTS = [...D3.buildings, ...D3.mansions].map(b => ({ x: b.x, z: b.z, w: b.w, d: b.d, face: b.face }));
++export function d3Blocked(x, z, pad = 0) {
++  for (const f of D3_FOOTPRINTS) {
++    const fx = Math.cos(f.face), fz = Math.sin(f.face), dx = x - f.x, dz = z - f.z;
++    const along = dx * -fz + dz * fx, front = dx * fx + dz * fz;
++    if (Math.abs(along) < f.w / 2 + pad && Math.abs(front) < f.d / 2 + pad) return true;
++  }
++  const gc = d3p(D3.garden.u, 0); if (Math.hypot(x - gc.x, z - gc.z) < D3.garden.r + 1.5 + pad) return true;
++  const du = x * E3.x + z * E3.z, dv = x * N3.x + z * N3.z; if (du > D3.avenue.u0 - 2 && du < D3.avenue.u1 + 4 && Math.abs(dv) < D3.avenue.w / 2 + 2 + pad) return true;
++  return false;
++}
+diff -ruN a/kekaisaran.js b/kekaisaran.js
+--- a/kekaisaran.js	2026-11-02 22:15:30.443414204 +0000
++++ b/kekaisaran.js	2026-11-02 22:15:30.445168451 +0000
+@@ -1,5 +1,5 @@
+ import * as THREE from 'three';
+-import { APOTHEM, SIDE, WALL, RING, PLAZA_R, PALACE_SITE, ROAD_W, AVENUE_W, GATES, DISTRICTS, VERTS, EMPIRE_C, EMPIRE_YAW, GATE_OFFSET, toWorld, D1, d1Blocked, inD1, insidePoly, D2, d2p, d2Face, d2Blocked, inD2 } from './kekaisaran-layout.js';
++import { APOTHEM, SIDE, WALL, RING, PLAZA_R, PALACE_SITE, ROAD_W, AVENUE_W, GATES, DISTRICTS, VERTS, EMPIRE_C, EMPIRE_YAW, GATE_OFFSET, toWorld, D1, d1Blocked, inD1, insidePoly, D2, d2p, d2Face, d2Blocked, inD2, D3, d3p, d3Face, d3Blocked, inD3 } from './kekaisaran-layout.js';
+ 
+ // ============================================================
+ //  Membangun Kota Kekaisaran (satu chunk, dipanggil dari world.js).
+@@ -7,7 +7,8 @@
+ //  jalan raya Gerbang Utama (saluran air + jembatan), halaman & tapak istana (BELUM ada istananya), dan DISTRIK 1 — Military Quarter
+ //  (lapangan apel, markas komando, 4 barak, gudang senjata, kandang, pandai besi, rumah perwira, 2 lapangan latihan, pagar kayu, saluran air).
+ //  DISTRIK 2 — Merchant Quarter (alun-alun pasar bundar dengan kios berwarna & air mancur, 8 toko, penginapan, kedai, bank, rumah timbang, gudang dagang, Balai Serikat Pedagang).
+-//  Distrik 3-5: lahan kosong bertanda patok + papan "segera dibangun". TIDAK ADA NPC.
++//  DISTRIK 3 — Noble Quarter (taman formal berpagar tanaman dengan air mancur, 6 kediaman bangsawan, Kediaman Adipati, kapel keluarga, rumah kaca).
++//  Distrik 4-5: lahan kosong bertanda patok + papan "segera dibangun". TIDAK ADA NPC.
+ //
+ //  Semua mesh dibuat di kerangka lokal kota (grup `city`): sumbu-x = ke depan (searah jalan ladang), sumbu-z = ke kanan, pusat istana = (0,0).
+ //  Collider (lingkaran) dimasukkan ke koordinat DUNIA lewat toWorld().
+@@ -654,13 +655,152 @@
+   yield;
+   // ======================================================================
+ 
+-  // ---------- Distrik 3-5: lahan kosong bertanda ----------
++  // ======================================================================
++  //  DISTRIK 3 — NOBLE QUARTER (taman formal bundar berpagar tanaman, kediaman bangsawan, kapel keluarga, rumah kaca, Kediaman Adipati)
++  //  Koordinat distrik (u, v) -> lokal kota lewat d3p(); arah depan bangunan dihitung di kekaisaran-layout.js (b.x, b.z, b.face).
++  // ======================================================================
++  const hedgeM = std(0x2f6b34), hedgeDark = std(0x275a2c);
++  const grassM = new THREE.MeshStandardMaterial({ color: 0x5c9a46, roughness: 1, side: THREE.DoubleSide });
++  const gravelM = tm(T.sand, 0xe2dcc8, { side: THREE.DoubleSide, polygonOffset: true });
++  const glassM = new THREE.MeshStandardMaterial({ color: 0xa8d8ea, roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
++  const crownEmM = new THREE.MeshStandardMaterial({ map: ctex(256, (x, s) => { x.fillStyle = '#1d3266'; x.beginPath(); x.arc(s / 2, s / 2, s / 2, 0, 7); x.fill(); x.strokeStyle = '#d9b24a'; x.lineWidth = 10; x.beginPath(); x.arc(s / 2, s / 2, s / 2 - 12, 0, 7); x.stroke(); crown(x, s / 2, s / 2, 70, '#e7c862'); }), roughness: 1 });
++  const G3 = D3.garden, g3c = d3p(G3.u, 0), q3 = (r, th) => d3p(G3.u + r * Math.cos(th), r * Math.sin(th));
++  const FLOWER = [0xd9456a, 0xf0c43a, 0xf2f2f2, 0x9a5ad0, 0xf08a3a, 0x58a8e0];
++  const cone = (g, x, z, h = 1.8, r = 0.8) => { mesh(cyl(0.12, 0.16, 0.5, 6), M.woodDark, x, 0.25, z, g, false); mesh(new THREE.ConeGeometry(r, h, 8), hedgeM, x, 0.5 + h / 2, z, g); };
++  const statue3 = (x, z, tx, tz, h = 2.2) => {   // patung bangsawan di atas alas batu (koordinat lokal kota)
++    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = Math.atan2(tx - x, tz - z); city.add(g);
++    mesh(box(1.5, 1.1, 1.5), M.plinth, 0, 0.55, 0, g); mesh(box(1.1, 0.25, 1.1), M.hall, 0, 1.22, 0, g); mesh(cyl(0.3, 0.45, h * 0.6, 8), M.hall, 0, 1.35 + h * 0.3, 0, g);
++    mesh(new THREE.SphereGeometry(0.28, 8, 6), M.hall, 0, 1.45 + h * 0.6 + 0.15, 0, g); mesh(box(0.1, h * 0.55, 0.1), M.gold, 0.45, 1.5 + h * 0.3, 0.1, g, false); col(x, z, 0.9);
++  };
++  // ---------- lantai: jalan utama, taman, jalur ----------
++  { const a = d3p(D3.avenue.u0 - 2, 0), b = d3p(D3.avenue.u1, 0); decalStrip(a.x, a.z, b.x, b.z, D3.avenue.w, M.cobble, 4, 0.33); }
++  decalDisc(g3c.x, g3c.z, G3.r + 1.4, M.cobble, 5, 0.33, 72);
++  decalDisc(g3c.x, g3c.z, G3.r - 0.2, grassM, 6, 0.3, 72);
++  decalRing(8.2, 11.4, gravelM, 7, 0.3, 64);
++  for (const [du, dv] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const a = d3p(G3.u + du * 3, dv * 3), b = d3p(G3.u + du * (G3.r - 0.5), dv * (G3.r - 0.5)); decalStrip(a.x, a.z, b.x, b.z, 3.2, gravelM, 7, 0.3); }
++  for (let k = 0; k < 4; k++) {   // petak bunga bundar di empat diagonal
++    const th = (45 + k * 90) * D2R, p = q3(9.6, th); decalDisc(p.x, p.z, 2.5, std(0x7a5a38), 8, 0.3, 24);
++  }
++  { const n = 4 * 16, im = new THREE.InstancedMesh(new THREE.SphereGeometry(0.2, 6, 5), new THREE.MeshStandardMaterial({ roughness: 1 }), n); let i = 0;
++    for (let k = 0; k < 4; k++) { const p = q3(9.6, (45 + k * 90) * D2R); for (let j = 0; j < 16; j++) { const a = j * 2.4, r = 0.3 + 2.0 * Math.sqrt((j + 0.5) / 16); dummy.position.set(p.x + Math.cos(a) * r, 0.3, p.z + Math.sin(a) * r); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(Rn(0.9, 1.4)); dummy.updateMatrix(); im.setMatrixAt(i, dummy.matrix); im.setColorAt(i, tmpC.setHex(FLOWER[(k + j) % FLOWER.length])); i++; } }
++    city.add(im); }
++  yield;
++  // ---------- pagar tanaman bundar (4 pintu) + topiary ----------
++  { const segs = [], gaps = [0, 90, 180, 270];
++    for (let a = 0; a < 360; a += 4) { if (gaps.some(g => Math.abs(((a - g + 540) % 360) - 180) < 13)) continue; segs.push(a); }
++    const hg = new THREE.InstancedMesh(box(1.4, 1.5, 4.1), hedgeM, segs.length), top = new THREE.InstancedMesh(box(1.0, 0.3, 3.9), hedgeDark, segs.length);
++    segs.forEach((a, i) => { const th = a * D2R, p = q3(G3.hedgeR, th), ph = d3Face(-Math.sin(th), Math.cos(th));
++      dummy.position.set(p.x, 0.75, p.z); dummy.rotation.set(0, -ph, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); hg.setMatrixAt(i, dummy.matrix);
++      dummy.position.y = 1.55; dummy.updateMatrix(); top.setMatrixAt(i, dummy.matrix); if (i % 2 === 0) col(p.x, p.z, 1.35); });
++    hg.castShadow = hg.receiveShadow = top.castShadow = true; city.add(hg, top);
++    for (const g0 of gaps) for (const sd of [-1, 1]) { const p = q3(G3.hedgeR, (g0 + sd * 15) * D2R); cone(city, p.x, p.z, 2.6, 0.9); col(p.x, p.z, 0.9); }
++  }
++  // ---------- air mancur, patung, lampu taman ----------
++  { const g = new THREE.Group(); g.position.set(g3c.x, 0, g3c.z); city.add(g);
++    mesh(cyl(3.9, 4.1, 0.9, 18), M.plinth, 0, 0.45, 0, g); mesh(new THREE.CircleGeometry(3.5, 24).rotateX(-Math.PI / 2), M.water, 0, 0.88, 0, g, false);
++    mesh(cyl(0.6, 0.8, 1.8, 10), M.hall, 0, 1.8, 0, g); mesh(cyl(1.9, 0.7, 0.4, 14), M.hall, 0, 2.8, 0, g); mesh(cyl(0.22, 0.32, 1.6, 8), M.hall, 0, 3.8, 0, g); mesh(cyl(1.0, 0.3, 0.3, 12), M.hall, 0, 4.7, 0, g); mesh(new THREE.SphereGeometry(0.34, 8, 6), M.gold, 0, 5.1, 0, g, false);
++    for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + Math.PI / 4; mesh(cyl(0.3, 0.3, 0.9, 8), M.hall, Math.cos(a) * 4.7, 0.45, Math.sin(a) * 4.7, g); mesh(new THREE.SphereGeometry(0.34, 8, 6), M.gold, Math.cos(a) * 4.7, 1.1, Math.sin(a) * 4.7, g, false); }
++    col(g3c.x, g3c.z, 4.6); }
++  for (let k = 0; k < 4; k++) { const th = (45 + k * 90) * D2R, p = q3(5.6, th); statue3(p.x, p.z, g3c.x, g3c.z); }
++  for (let i = 0; i < 8; i++) { const th = (22.5 + i * 45) * D2R, p = q3(G3.r + 2.4, th); lamp(p.x, p.z); }
++  yield;
++  // ---------- gapura masuk Distrik 3 ----------
++  { const u = RING.r + RING.w / 2 + 3.5, c = d3p(u, 0), g = new THREE.Group(); g.position.set(c.x, 0, c.z); g.rotation.y = -144 * D2R; city.add(g);
++    for (const sd of [-1, 1]) { mesh(box(1.5, 0.6, 1.5), M.plinth, 0, 0.3, sd * 7.2, g); mesh(box(1.0, 6.4, 1.0), M.hall, 0, 3.8, sd * 7.2, g); mesh(box(1.4, 0.4, 1.4), M.plinth, 0, 7.0, sd * 7.2, g); mesh(new THREE.ConeGeometry(0.7, 1.4, 4).rotateY(Math.PI / 4), M.gold, 0, 7.9, sd * 7.2, g); const q = d3p(u, sd * 7.2); col(q.x, q.z, 1.0); }
++    mesh(box(0.9, 0.9, 15.6), M.hall, 0, 6.5, 0, g); mesh(box(0.5, 0.3, 15), M.gold, 0, 7.1, 0, g, false);
++    plaque(g, 'NOBLE QUARTER', 'Distrik 3 · Kediaman', 0.5, 6.0, 0, 7.0, 1.7, Math.PI / 2); plaque(g, 'NOBLE QUARTER', 'Distrik 3 · Kediaman', -0.5, 6.0, 0, 7.0, 1.7, -Math.PI / 2);
++    for (const sd of [-1, 1]) banner(g, 'crown', 0, 3.6, sd * 5.6, 1.3, 3.0, Math.PI / 2);
++  }
++  for (const u of [78, 88, 134]) for (const sd of [-1, 1]) { const p = d3p(u, sd * (D3.avenue.w / 2 + 0.9)); lamp(p.x, p.z); }
++  for (const u of [83, 140]) for (const sd of [-1, 1]) { const p = d3p(u, sd * 8.2), t = d3p(u, 0); statue3(p.x, p.z, t.x, t.z); }
++  yield;
++  // ---------- jalur batu dari tiap kediaman ke taman / jalan ----------
++  for (const b of [...D3.mansions, D3.buildings[1], D3.buildings[2]]) {
++    const fx = Math.cos(b.face), fz = Math.sin(b.face), sx = b.x + fx * (b.d / 2 + 0.5), sz = b.z + fz * (b.d / 2 + 0.5), dx = g3c.x - sx, dz = g3c.z - sz, L = Math.hypot(dx, dz), t = Math.max(0, L - (G3.r + 0.5)) / L;
++    if (L > G3.r + 1.5) decalStrip(sx, sz, sx + dx * t, sz + dz * t, 3, M.cobble, 5, 0.33);
++  }
++  // ---------- bangunan ----------
++  const hedgeBox = (g, x, z, w = 3.2) => { mesh(box(w, 1.0, 1.2), hedgeM, x, 0.5, z, g); mesh(box(w - 0.4, 0.2, 1.0), hedgeDark, x, 1.05, z, g, false); };
++  for (const b of D3.mansions) {
++    const g = place(b.x, b.z, b.face), w = b.w, d = b.d, H = 6.8;
++    const y0 = shell(g, w, d, H, 4.4, { wall: M.hall, roof: M.roofBlue, beams: false });
++    door(g, d, y0, 2.1, 3.2); plaque(g, b.name.toUpperCase(), null, 0, y0 + 4.6, d / 2 + 0.1, 4.4, 0.8);
++    for (const x of [-(w / 2 - 1.8), -(w / 2 - 5.0), w / 2 - 5.0, w / 2 - 1.8]) { if (Math.abs(x) < 2.6) continue; mesh(new THREE.PlaneGeometry(0.95, 1.3), M.window, x, y0 + H * 0.9, d / 2 + 0.07, g, false); }
++    mesh(box(4.4, 0.2, 1.6), M.plinth, 0, y0 + 3.55, d / 2 + 0.8, g, false);   // balkon di atas pintu
++    for (const sx of [-1, 1]) { mesh(box(0.14, 0.8, 1.6), M.plinth, sx * 2.1, y0 + 4.0, d / 2 + 0.8, g, false); mesh(cyl(0.12, 0.12, 3.5, 6), M.hall, sx * 2.0, y0 + 1.75, d / 2 + 1.5, g, false); }
++    mesh(box(4.4, 0.08, 0.1), M.iron, 0, y0 + 4.45, d / 2 + 1.55, g, false);
++    for (const sx of [-1, 1]) banner(g, 'crown', sx * (w / 2 - 1.0), y0 + 2.4, d / 2 + 0.14, 0.9, 2.1);
++    hedgeBox(g, -4.6, d / 2 + 2.6); hedgeBox(g, 4.6, d / 2 + 2.6); cone(g, -7.0, d / 2 + 2.6, 1.9, 0.7); cone(g, 7.0, d / 2 + 2.6, 1.9, 0.7);
++    if (b.variant === 0) { const t = new THREE.Group(); t.position.set(-w / 2 - 0.4, 0, d / 2 - 1.0); g.add(t); roundTower(t, 2.0, 9.6, 4.2, M.roofBlue); bcol(b, -w / 2 - 0.4, d / 2 - 1.0, 2.4); }
++    else if (b.variant === 1) { for (const sx of [-1, 1]) { const t = new THREE.Group(); t.position.set(sx * (w / 2 + 0.3), 0, d / 2 - 0.8); g.add(t); roundTower(t, 1.5, 8.6, 3.6, M.roofBlue); bcol(b, sx * (w / 2 + 0.3), d / 2 - 0.8, 1.9); } }
++    else { mesh(boxUV(5.2, 3.0, 1.6, 0.5), M.hall, 0, y0 + H + 1.5, d / 2 - 0.6, g); { const tri = new THREE.Shape(); tri.moveTo(-2.9, 0); tri.lineTo(2.9, 0); tri.lineTo(0, 2.0); mesh(new THREE.ShapeGeometry(tri), M.hall, 0, y0 + H + 3.0, d / 2 + 0.22, g, false); } }
++    colRect(b);
++  }
++  { // Kediaman Adipati
++    const b = D3.buildings[0], g = place(b.x, b.z, b.face), w = b.w, d = b.d;
++    const y0 = shell(g, w, d, 8.4, 5.4, { wall: M.hall, roof: M.roofBlue, ov: 1.2, chimney: false, beams: false });
++    mesh(boxUV(7.6, 15, 5.0, 0.5), M.hall, 0, 7.5, d / 2 + 1.5, g); mesh(box(8.4, 0.6, 5.8), M.plinth, 0, 15.2, d / 2 + 1.5, g);
++    mesh(new THREE.ConeGeometry(5.4, 9, 4).rotateY(Math.PI / 4), M.roofBlue, 0, 20, d / 2 + 1.5, g); mesh(cyl(0.06, 0.06, 3.4, 5), M.gold, 0, 26, d / 2 + 1.5, g, false);
++    mesh(extrude(doorShape(2.0, 3.6), 0.5, false), M.woodDark, 0, 0, d / 2 + 4.0, g, false); for (const y of [1.4, 3.2]) mesh(box(4.1, 0.16, 0.2), M.iron, 0, y, d / 2 + 4.1, g, false); mesh(box(0.14, 5.6, 0.2), M.iron, 0, 2.8, d / 2 + 4.12, g, false);
++    for (const sd of [-1, 1]) mesh(box(0.7, 5.8, 0.7), M.plinth, sd * 2.5, 2.9, d / 2 + 4.1, g); mesh(box(5.8, 0.9, 0.9), M.plinth, 0, 5.9, d / 2 + 4.1, g);
++    mesh(box(9.0, 0.5, 2.4), M.plinth, 0, 0.55, d / 2 + 5.1, g); mesh(box(7.6, 0.5, 1.8), M.plinth, 0, 0.25, d / 2 + 6.1, g);
++    { const em = new THREE.Mesh(new THREE.CircleGeometry(1.3, 24), crownEmM); em.position.set(0, 10.8, d / 2 + 4.03); g.add(em); }
++    plaque(g, 'KEDIAMAN ADIPATI', 'Noble Quarter', 0, 7.6, d / 2 + 4.05, 5.6, 1.3);
++    for (const sd of [-1, 1]) {
++      for (const zz of [d / 2 - 0.5, -d / 2 + 0.5]) { const t = new THREE.Group(); t.position.set(sd * (w / 2 + 0.4), 0, zz); g.add(t); roundTower(t, 2.4, 11, 4.6, M.roofBlue); bcol(b, sd * (w / 2 + 0.4), zz, 3.0); }
++      banner(g, 'crown', sd * (w / 2 - 3.4), y0 + 4.2, d / 2 + 0.14, 1.2, 2.8); banner(g, 'crown', sd * 3.4, y0 + 6.4, d / 2 + 4.05, 1.0, 3.0);
++      mesh(box(0.2, 0.3, 0.2), M.lantern, sd * 3.1, y0 + 2.4, d / 2 + 4.2, g, false);
++      hedgeBox(g, sd * 8.0, d / 2 + 3.2, 4.4); cone(g, sd * 11.2, d / 2 + 3.2, 2.2, 0.8);
++    }
++    colRect(b, 0.4); bcol(b, 0, d / 2 + 1.5, 3.5);
++  }
++  { // Kapel Keluarga
++    const b = D3.buildings[1], g = place(b.x, b.z, b.face), w = b.w, d = b.d, H = 6.2, rh = 4.4, y0 = 0.7;
++    mesh(boxUV(w + 0.5, 0.7, d + 0.5, 0.5), M.plinth, 0, 0.35, 0, g); mesh(boxUV(w, H, d, 0.5), M.hall, 0, y0 + H / 2, 0, g);
++    { const hx = w / 2 + 0.8, ang = Math.atan2(rh, hx), sl = Math.hypot(hx, rh);
++      for (const e of [-1, 1]) { const s = mesh(boxUV(sl, 0.26, d + 1.2, 0.5), M.roofBlue, e * hx / 2, y0 + H + rh / 2 + 0.05, 0, g); s.rotation.z = -e * ang; }
++      mesh(box(0.4, 0.22, d + 1.3), M.timber, 0, y0 + H + rh + 0.05, 0, g, false);
++      for (const e of [-1, 1]) { const tri = new THREE.Shape(); tri.moveTo(-w / 2, 0); tri.lineTo(w / 2, 0); tri.lineTo(0, rh); const tg = new THREE.ShapeGeometry(tri); const t = mesh(tg, M.hall, 0, y0 + H, e * (d / 2 + 0.01), g, false); if (e < 0) t.rotation.y = Math.PI; } }
++    for (const sx of [-1, 1]) for (let z = -d / 2 + 3; z < d / 2 - 2; z += 4) mesh(new THREE.PlaneGeometry(0.9, 2.8), M.window, sx * (w / 2 + 0.06), y0 + 3.6, z, g, false).rotation.y = sx * Math.PI / 2;
++    mesh(boxUV(4.6, 12.5, 4.6, 0.5), M.hall, 0, 6.95, d / 2 + 0.3, g); mesh(box(5.2, 0.5, 5.2), M.plinth, 0, 13.4, d / 2 + 0.3, g);
++    mesh(new THREE.ConeGeometry(3.4, 9.5, 4).rotateY(Math.PI / 4), M.roofBlue, 0, 18.4, d / 2 + 0.3, g); mesh(box(0.14, 2.2, 0.14), M.gold, 0, 24.3, d / 2 + 0.3, g, false); mesh(box(1.2, 0.14, 0.14), M.gold, 0, 24.7, d / 2 + 0.3, g, false);
++    for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) mesh(new THREE.PlaneGeometry(1.1, 2.6), M.window, Math.sin(a) * 2.32, 10.5, d / 2 + 0.3 + Math.cos(a) * 2.32, g, false).rotation.y = a;
++    mesh(extrude(doorShape(1.4, 2.8), 0.5, false), M.woodDark, 0, 0, d / 2 + 2.62, g, false); for (const y of [1.2, 2.6]) mesh(box(2.9, 0.14, 0.2), M.iron, 0, y, d / 2 + 2.72, g, false);
++    mesh(box(4.4, 0.4, 1.4), M.plinth, 0, 0.2, d / 2 + 3.3, g, false); mesh(box(3.6, 0.4, 0.8), M.plinth, 0, 0.55 - 0.35, d / 2 + 4.0, g, false);
++    { const em = new THREE.Mesh(new THREE.CircleGeometry(0.9, 20), crownEmM); em.position.set(0, 5.6, d / 2 + 2.63); g.add(em); }
++    plaque(g, 'KAPEL KELUARGA', null, 0, 7.6, d / 2 + 2.64, 3.8, 0.8);
++    colRect(b); bcol(b, 0, d / 2 + 0.3, 2.8);
++    for (let i = 0; i < 4; i++) { const sx = i < 2 ? -1 : 1, z = -2 + (i % 2) * 5; mesh(box(0.8, 1.2, 0.5), M.hall, sx * (w / 2 + 2.2), 0.6, z - d * 0.1, g); }   // batu nisan kecil
++  }
++  { // Rumah Kaca
++    const b = D3.buildings[2], g = place(b.x, b.z, b.face), w = b.w, d = b.d, H = 3.4;
++    mesh(boxUV(w + 0.4, 0.8, d + 0.4, 0.5), M.plinth, 0, 0.4, 0, g); mesh(box(w, H, d), glassM, 0, 0.8 + H / 2, 0, g, false);
++    for (let x = -w / 2; x <= w / 2 + 0.01; x += w / 7) for (const e of [-1, 1]) mesh(box(0.12, H, 0.12), M.iron, x, 0.8 + H / 2, e * d / 2, g, false);
++    for (const e of [-1, 1]) { mesh(box(0.12, H, 0.12), M.iron, e * w / 2, 0.8 + H / 2, 0, g, false); mesh(box(w, 0.12, 0.12), M.iron, 0, 0.8 + H, e * d / 2, g, false); mesh(box(w, 0.1, 0.1), M.iron, 0, 0.8 + H / 2, e * d / 2, g, false); }
++    { const rh = 2.2, hz = d / 2 + 0.3, ang = Math.atan2(rh, hz), sl = Math.hypot(hz, rh);
++      for (const e of [-1, 1]) { const s = mesh(box(w + 0.4, 0.1, sl), glassM, 0, 0.8 + H + rh / 2, e * hz / 2, g, false); s.rotation.x = e * ang; for (let x = -w / 2; x <= w / 2 + 0.01; x += w / 7) { const r = mesh(box(0.1, 0.1, sl), M.iron, x, 0.8 + H + rh / 2 + 0.06, e * hz / 2, g, false); r.rotation.x = e * ang; } }
++      mesh(box(w + 0.4, 0.14, 0.2), M.iron, 0, 0.8 + H + rh, 0, g, false); }
++    mesh(box(1.8, 2.6, 0.12), M.iron, 0, 0.8 + 1.3, d / 2 + 0.05, g, false); mesh(box(2.2, 0.3, 1.2), M.plinth, 0, 0.15, d / 2 + 0.9, g, false);
++    plaque(g, 'RUMAH KACA', null, 0, 0.8 + H + 0.9, d / 2 + 0.1, 3.0, 0.62);
++    for (let i = 0; i < 7; i++) { const x = -w / 2 + 1.2 + i * (w - 2.4) / 6, z = (i % 2 ? -1 : 1) * 1.4; mesh(cyl(0.3, 0.22, 0.5, 8), M.woodDark, x, 1.05, z, g, false); mesh(new THREE.SphereGeometry(0.75, 8, 6), hedgeM, x, 1.9, z, g, false); if (i % 3 === 0) mesh(new THREE.SphereGeometry(0.2, 6, 5), std(FLOWER[i % FLOWER.length]), x + 0.3, 2.5, z, g, false); }
++    colRect(b);
++  }
++  yield;
++  // ---------- pohon taman di ruang kosong ----------
++  for (let n = 0, tries = 0; n < (COARSE ? 8 : 16) && tries < 900; tries++) {
++    const p = d3p(Rn(76, 168), Rn(-90, 90)); if (!inD3(p.x, p.z, 3.5) || d3Blocked(p.x, p.z, 5)) continue;
++    if (trees.some(t => Math.hypot(t.x - p.x, t.z - p.z) < 10)) continue; addTree(p.x, p.z, Rn(0.6, 0.9)); n++;
++  }
++  yield;
++  // ======================================================================
++
++  // ---------- Distrik 4-5: lahan kosong bertanda ----------
+   const stakes = [];
+   for (const g of GATES) {   // patok di tepi jalan radial yang berbatasan dengan distrik yang belum dibangun
+     const dx = Math.cos(g.psi), dz = Math.sin(g.psi), nx = -dz, nz = dx;
+     for (let s = RING.r + 8; s < APOTHEM - 10; s += 7) for (const sd of [-1, 1]) {
+       const off = (g.k === 2 ? AVENUE_W : ROAD_W) / 2 + 1.0, x = dx * s + nx * sd * off, z = dz * s + nz * sd * off;
+-      if (inD1(x, z, -1.5) || d1Blocked(x, z, 1) || inD2(x, z, -1.5) || d2Blocked(x, z, 1)) continue; if (g.k === 2 && x < -RING.r - 8 && Math.abs(z) < 12) continue;
++      if (inD1(x, z, -1.5) || d1Blocked(x, z, 1) || inD2(x, z, -1.5) || d2Blocked(x, z, 1) || inD3(x, z, -1.5) || d3Blocked(x, z, 1)) continue; if (g.k === 2 && x < -RING.r - 8 && Math.abs(z) < 12) continue;
+       stakes.push({ x, z });
+     }
+   }

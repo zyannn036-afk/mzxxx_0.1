@@ -16,6 +16,9 @@ export const CITY = { name: 'Kota Arunika', x: 340, z: 52, radius: 70, open: tru
 // ---------- Interior Katedral ----------
 // Ruang dalam katedral dibangun terpisah (church.js) di titik jauh di luar peta; pemain "dipindahkan" ke sana lewat pintu depan katedral.
 // Koordinat ruang dalam: x ke kanan, z ke depan; pintu keluar di ujung +z (selatan), altar di ujung -z (utara).
+// Titik muncul pemain saat game dimulai: di jalan utama sebelah barat alun-alun, menghadap timur (ke alun-alun & istana).
+export const CITY_SPAWN = { x: CITY.x - 16, z: CITY.z, face: Math.PI / 2 };
+
 export const CHURCH = {
   name: 'Katedral Arunika',
   x: CITY.x, z: CITY.z + 220,                                          // pusat ruang dalam
@@ -26,18 +29,41 @@ export const CHURCH = {
   exit: { x: CITY.x, z: CITY.z + 220 + 12.2, r: 1.4 },                // di depan pintu dalam: melangkah ke sini = keluar
 };
 
+// ---------- Interior Istana ----------
+// Sama seperti katedral: ruang dalam dibangun terpisah (palace.js) di titik jauh di luar peta, pemain "dipindahkan" lewat gerbang istana.
+// Tata ruang (2 lantai, lorong, tangga agung, balairung/singgasana) ada di palace-layout.js. Koordinat ruang dalam: pusat istana = (x, z),
+// pintu masuk di ujung +z (selatan), singgasana di ujung -z (utara), lantai 2 di y = 6.
+// Istana luar (BUILDINGS: 'castle', u = 80.5, v = 0, yaw = -PI/2) menghadap barat (-x dunia); gerbangnya (gatehouse) berada di sisi barat itu.
+const CASTLE_GATE_X = CITY.x + 80.5 - 10.1;                           // depan gerbang istana (luar), tepat di muka gatehouse
+const PALACE_C = { x: CITY.x, z: CITY.z + 330 };                      // pusat ruang dalam (di selatan katedral, jauh di luar peta)
+export const PALACE = {
+  name: 'Istana Arunika',
+  x: PALACE_C.x, z: PALACE_C.z,
+  door: { x: CASTLE_GATE_X, z: CITY.z, r: 1.6 },                      // melangkah ke sini (di depan gerbang) = masuk
+  outSpawn: { x: CASTLE_GATE_X - 2.0, z: CITY.z, face: -Math.PI / 2 },   // muncul di depan istana saat keluar, menghadap barat (ke jalan utama)
+  inSpawn: { x: PALACE_C.x, z: PALACE_C.z + 19.2, face: Math.PI },        // muncul di aula masuk, menghadap ke tangga & singgasana
+  exit: { x: PALACE_C.x, z: PALACE_C.z + 22.0, r: 1.3 },                  // di ambang pintu utama dalam: melangkah ke sini = keluar
+  radius: 32,                                                          // lingkaran area jelajah (menutup seluruh bangunan 40 x 46)
+};
+
 // Kota diperluas (u: -56 .. ~93, v: -64 .. 64). Area jelajah = kumpulan lingkaran yang menutup seluruh kota (grid 3 x 3),
 // supaya sisi barat tidak bocor melewati Gerbang Batu Kuno (lingkaran paling barat berhenti di u ≈ -58).
 export const CITY_CIRCLES = [];
 for (const u of [-20, 26, 68]) for (const v of [-44, 0, 44]) CITY_CIRCLES.push({ x: CITY.x + u, z: CITY.z + v, r: 38 });
 // jarak ke tepi kota: negatif = di dalam kota, positif = di luar
 export const cityDist = (x, z) => { let m = Infinity; for (const c of CITY_CIRCLES) m = Math.min(m, Math.hypot(x - c.x, z - c.z) - c.r); return m; };
-export const CITY_ZONES = [{ x: 292, z: 52, r: 9 }, ...CITY_CIRCLES, { x: CHURCH.x, z: CHURCH.z, r: 19 }];
+export const CITY_ZONES = [{ x: 292, z: 52, r: 9 }, ...CITY_CIRCLES, { x: CHURCH.x, z: CHURCH.z, r: 19 }, { x: PALACE.x, z: PALACE.z, r: PALACE.radius }];
 
 function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 
 export const PLAZA = { u: 0, v: 0, r: 10 };
+
+// ---------- Gerbang Timur ----------
+// Pintu keluar kota ke Padang Rumput (lihat meadow-layout.js). Dibuat di tembok timur (u = 97), di antara istana (v -13..13) dan menara v = 34.
+// v = titik tengah gerbang, half = setengah lebar celah tembok. Jalan timur menyambung dari jalan u = 55 sampai keluar tembok.
+export const EAST_GATE = { v: 20, half: 7, u: 97 };
+export const EAST_ROAD = { u0: 55, u1: 100, v0: EAST_GATE.v, v1: EAST_GATE.v, w: 6 };
 
 // jalan batu lurus (sejajar sumbu). Horizontal: v0 === v1; vertikal: u0 === u1. w = lebar.
 export const STREETS = [
@@ -142,7 +168,11 @@ function generate() {
     const b = { ...p, u, v, yaw };
     if (free(b)) { add(b); n++; }
   }
-  return placed;
+  // Jalan timur + halaman depan Gerbang Timur harus bebas. Penyaringan dilakukan SETELAH semua rumah ditaruh (bukan di free()),
+  // supaya urutan angka acak tidak bergeser dan letak rumah-rumah lain tetap persis sama.
+  const clearRects = [streetRect(EAST_ROAD), { u0: 80, u1: 100, v0: EAST_GATE.v - 7, v1: EAST_GATE.v + 7 }];
+  const special = new Set(SPECIALS.map(b => b.kind));   // Balai Kota, Katedral, Istana tidak pernah dibuang
+  return placed.filter(b => special.has(b.kind) || !clearRects.some(r => hit(b.box, r, 1.2)));
 }
 
 export const BUILDINGS = generate();

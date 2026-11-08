@@ -1,0 +1,108 @@
+--- game.js	2026-11-08 10:16:45.304260356 +0000
++++ game.js	2026-11-08 10:18:22.711297107 +0000
+@@ -12,6 +12,7 @@
+ import { kekaisaranDist, districtAt, DISTRICTS, GATES, inNwPlain, inNwTown, nwPlainAxis, nwAxisToWorld } from './kekaisaran-layout.js';
+ import { VILLAGES_BL } from './kekaisaran-dataran.js';
+ import { DUNGEON_TOWN, DUNGEON_GATES, MAIN_DUNGEON, GUILD_DOOR, SMITH_DOOR } from './kota-dungeon.js';
++import { WARGA, CERITA, KAELEN_TALK } from './kota-warga.js';   // nama + percakapan semua NPC Kota Dungeon (hanya teks) + cerita rumor Kaelen
+ import { buildGuildInterior } from './kota-guild.js';   // interior Balai Petualang (guild) di Kota Dungeon
+ import { buildSmithInterior } from './kota-pandai-besi.js';   // interior toko Pandai Besi di Kota Dungeon (memakai mekanisme masuk / keluar yang sama dengan guild)
+ import { createLoot } from './dungeon-loot.js';   // item jatuhan monster (sesuai elemen dungeon), peti hadiah bos, tas item
+@@ -5131,6 +5132,33 @@
+ }
+ const gBye = { t: 'Sampai nanti.', f: guildClose };
+ 
++// ---- Warga Kota Dungeon (NPC berpapan nama di jalan, alun-alun, gerbang lembah; isi percakapan ada di kota-warga.js) ----
++// talkTarget(): siapa yang bisa diajak bicara sekarang? Kaelen (bila dekat) atau warga terdekat (radius 2.8 m). Mengembalikan { id, nama } atau null.
++function talkTarget() {
++  if (state !== 'world' || !inKotaDungeon || inGuild || inInn || GU.open || QT.phase || IT.open || kaelenOn()) return null;
++  const KB = globalThis.KAELEN_BATTLE; if (KB && KB.nearChallenge()) return { id: 'kaelen', nama: 'Kaelen' };
++  const K = globalThis.KOTA_WARGA, w = K && K.near(player.position.x, player.position.z, 2.8);
++  return w && WARGA[w.id] ? { id: w.id, nama: WARGA[w.id].nama } : null;
++}
++function wargaTalk(id, pre) {   // pre = kalimat yang ditampilkan (kosong = sapaan pertama)
++  const w = WARGA[id]; if (!w) return;
++  guildShow((w.ikon || '🧑') + ' ' + w.nama + ' — ' + w.peran, pre || w.sapa, [
++    { t: '💬 Apa kabar?', f: () => wargaTalk(id, w.kabar) },
++    { t: '📜 Ada rumor apa di kota ini?', f: () => wargaTalk(id, w.rumor) },
++    ...(w.topik || []).map(k => ({ t: k.t, f: () => wargaTalk(id, k.a) })),   // pilihan tambahan khusus NPC ini (kalau ada)
++    gBye]);
++}
++// ---- Kaelen: bicara dulu, duel hanya kalau pemain memilih menantang ----
++const KAELEN_NAMA = '🛡️ Kaelen — Pendekar Kardus';
++function kaelenMenu(pre) {
++  guildShow(KAELEN_NAMA, pre || KAELEN_TALK.sapa, [
++    { t: 'Kaukah Kaelen yang terkenal itu?', f: () => kaelenMenu(KAELEN_TALK.siapa) },
++    { t: 'Kenapa zirahmu dari kardus?', f: () => kaelenMenu(KAELEN_TALK.kardus) },
++    { t: 'Ceritakan soal Dungeon Es.', f: () => kaelenMenu(KAELEN_TALK.es) },
++    { t: '⚔️ Aku menantangmu duel!', f: () => { guildClose(); const KB = globalThis.KAELEN_BATTLE; if (KB && KB.nearChallenge()) KB.start(); } },
++    gBye]);
++}
++
+ // ---- Mira, resepsionis ----
+ const MIRA = '🧑‍💼 Mira — Resepsionis Guild';
+ function miraMenu(pre) {
+@@ -5139,6 +5167,7 @@
+     guildShow(MIRA, pre || 'Selamat datang di Balai Petualang! Kamu belum terdaftar, ya? Pendaftarannya gratis. Dengan kartu petualang, kamu boleh turun ke dungeon Lembah Bebatuan atas nama guild, dan keberhasilanmu dicatat di Papan Misi.', [
+       { t: '📝 Daftar jadi petualang', f: () => { gSave({ member: true }); miraMenu('Selesai! Selamat bergabung, Louis. Peringkat awalmu F · Pemula. Kalahkan bos dungeon untuk naik peringkat.'); } },
+       { t: '❔ Apa saja yang ada di guild ini?', f: miraAbout },
++      { t: '📜 Dengar rumor kota', f: () => miraMenu(CERITA.mira) },
+       gBye]);
+     return;
+   }
+@@ -5146,6 +5175,7 @@
+     { t: '🍲 Makan & istirahat (pulihkan HP)', f: guildRest },
+     { t: '🪪 Kartu petualang', f: miraCard },
+     { t: '🗺️ Tanya soal dungeon', f: miraDungeons },
++    { t: '📜 Dengar rumor kota', f: () => miraMenu(CERITA.mira) },
+     gBye]);
+ }
+ function miraAbout() {
+@@ -5173,6 +5203,8 @@
+     { t: 'Siapa Anda?', f: () => garrickMenu('Garrick. Dulu aku turun ke semua dungeon di lembah ini, sekarang tugasku menjaga agar para petualang pulang dengan selamat. Kursi ini nyaman, tapi jangan bilang siapa-siapa aku mulai betah.') },
+     { t: 'Ceritakan tentang Lembah Bebatuan.', f: () => garrickMenu('Lembah ini memanjang dari mulut kota sampai portal emas di ujungnya. Di dinding kiri dan kanan ada gerbang-gerbang lain: kristal, batu, api, es, dan kegelapan. Dan di ujung, Dungeon Cahaya. Konon siapa pun yang menaklukkan semuanya akan dikenang sebagai penguasa lembah.') },
+     { t: 'Ada saran untukku?', f: garrickAdvice },
++    { t: 'Siapa petualang terkuat di lembah ini?', f: () => garrickMenu(CERITA.garrickTerkuat) },
++    { t: 'Ceritakan soal Kaelen, si zirah kardus.', f: () => garrickMenu(CERITA.garrickKaelen) },
+     gBye]);
+ }
+ function garrickAdvice() {
+@@ -5196,6 +5228,7 @@
+     { t: 'Apa yang kau tempa di sini?', f: () => borinMenu('Pedang, kapak, perisai, zirah... apa pun yang dibawa petualang pulang dari lembah dalam keadaan penyok. Yang bagus kupajang di rak belakang. Yang retak ya kutempa ulang.') },
+     { t: 'Ceritakan soal senjata untuk dungeon.', f: () => borinMenu('Dungeon Api melelehkan baja biasa, dungeon Es membuatnya getas, dan Dungeon Batu menumpulkan mata pedang dalam sekejap. Tidak ada senjata sempurna. Yang ada petualang yang tahu medannya.') },
+     { t: 'Boleh aku melihat-lihat?', f: () => borinMenu('Silakan. Rak senjata di belakangku, perisai di dinding kanan, dan baju zirah di pojok itu cuma pajangan. Jangan dipakai, orang-orangannya marah kalau dibongkar.') },
++    { t: 'Soal zirah kardus Kaelen...', f: () => borinMenu(CERITA.borinKaelen) },
+     gBye]);
+ }
+ function guildTalk(id) { if (id === 'recep') miraMenu(); else if (id === 'master') garrickMenu(); else if (id === 'smith') borinMenu(); else boardView(); }
+@@ -5875,7 +5908,7 @@
+   P.drawT = 0; P.runT = 0; P.v.set(0, 0, 0); stick.x = stick.y = 0;
+   IT.open = true; world.aula.isabelChat(true); itShow('menu');
+ }
+-const talkAct = () => { if (QT.phase || IT.open || GU.open) return; if (kaelenOn()) return; { const KB = globalThis.KAELEN_BATTLE; if (state === 'world' && KB && KB.nearChallenge()) { KB.start(); return; } } const gs = guildSpotNow(); if (state === 'world' && queenNear()) startKneel(); else if (isabelNear()) isabelMenu(); else if (bedNow()) startSleep(); else if (gs) guildTalk(gs.id); else world.talk(); };
++const talkAct = () => { if (QT.phase || IT.open || GU.open) return; if (kaelenOn()) return; { const KB = globalThis.KAELEN_BATTLE; if (state === 'world' && KB && KB.nearChallenge()) { kaelenMenu(); return; } } const gs = guildSpotNow(); const tt = talkTarget(); if (state === 'world' && queenNear()) startKneel(); else if (isabelNear()) isabelMenu(); else if (bedNow()) startSleep(); else if (gs) guildTalk(gs.id); else if (tt) wargaTalk(tt.id); else world.talk(); };
+ function qtTick(dt) {
+   itWatch();
+   if (!inAula) QT.hinted = false;
+@@ -6193,9 +6226,9 @@
+   pose(b.lUL, 0, 0, mx(0.08, 0.12, hw), k); pose(b.rUL, 0, 0, mx(-0.08, -0.12, hw), k);
+   pose(b.lLL, mx(0.05, 0.5 + 0.12 * Math.sin(P.t * 3), hw), 0, 0, k); pose(b.rLL, mx(0.05, 0.35 + 0.12 * Math.sin(P.t * 3 + 1.6), hw), 0, 0, k);   // saat menelungkup: kaki ditekuk ke atas, bergoyang kecil
+ }
+-function qtButton(qn, isb, bd, gs) {   // label tombol: dekat ratu = Berlutut; dekat Isabel = Isabel; selain itu Mengobrol; petunjuk sekali per kunjungan
+-  const m = qn ? 'kneel' : isb ? (bedRaw() ? 'isabelbed' : 'isabel') : bd ? 'sleep' : gs ? 'guild-' + gs.id : 'talk';
+-  if (m !== QT.label) { QT.label = m; $('talk').innerHTML = m === 'kneel' ? '🧎 Berlutut <small>E</small>' : m === 'isabelbed' ? '👸 Isabel / 🛏️ Tidur <small>E</small>' : m === 'isabel' ? '👸 Bicara dengan Isabel <small>E</small>' : m === 'sleep' ? '🛏️ Tidur <small>E</small>' : m.startsWith('guild-') ? (gs.id === 'board' ? '📋 Lihat Papan Misi' : '💬 Bicara dengan ' + gs.short) + ' <small>E</small>' : '💬 Mengobrol <small>E</small>'; }
++function qtButton(qn, isb, bd, gs, wg) {   // label tombol: dekat ratu = Berlutut; dekat Isabel = Isabel; selain itu Mengobrol; petunjuk sekali per kunjungan
++  const m = qn ? 'kneel' : isb ? (bedRaw() ? 'isabelbed' : 'isabel') : bd ? 'sleep' : gs ? 'guild-' + gs.id : wg ? 'warga-' + wg.id : 'talk';
++  if (m !== QT.label) { QT.label = m; $('talk').innerHTML = m === 'kneel' ? '🧎 Berlutut <small>E</small>' : m === 'isabelbed' ? '👸 Isabel / 🛏️ Tidur <small>E</small>' : m === 'isabel' ? '👸 Bicara dengan Isabel <small>E</small>' : m === 'sleep' ? '🛏️ Tidur <small>E</small>' : m.startsWith('warga-') ? '💬 Bicara dengan ' + wg.nama + ' <small>E</small>' : m.startsWith('guild-') ? (gs.id === 'board' ? '📋 Lihat Papan Misi' : '💬 Bicara dengan ' + gs.short) + ' <small>E</small>' : '💬 Mengobrol <small>E</small>'; }
+   if (bd && !QT.bhinted) { QT.bhinted = true; toast('🛏️ Tekan E untuk tidur di kasur dan memulihkan HP', 3400); }
+   if (qn && !QT.hinted) { QT.hinted = true; toast('👑 Berlututlah (E) untuk menghadap Ratu', 3200); }
+   if (isb && !QT.ihinted) { QT.ihinted = true; toast('👸 Tekan E untuk berbicara dengan Putri Isabel: mengobrol atau mengajaknya berjalan bersama', 3600); }
+@@ -6451,7 +6484,7 @@
+   }
+   cam.lookAt(lx, ly, lz);
+   if (!(state === 'world' && !inPalace && !inChurch)) world.aula.isabelPause();   // Isabel ikut di dunia luar, Istana Kekaisaran, dan Penginapan Karavan; di tempat lain ia menunggu   (di penginapan Isabel memakai INN_ENV: tabrakan & lantai penginapan)
+-  if (world.group.visible) { uploadStep(); queenWarmStep(); isabelWarmStep(); if (state === 'world' && !inPalace && !inChurch) world.aula.isabelUpdate(player.position.x, player.position.z, rdt, inGuild ? GUILD_ENV : inInn ? INN_ENV : ISA_ENV); world.update(rdt, clock.elapsedTime, player.position, cam.position, cam); if (inGuild && guild) guild.update(rdt, clock.elapsedTime, player.position.x, player.position.z); const qn = state === 'world' && queenNear(), isb = !qn && isabelNear(), bd = !qn && !isb && !!bedNow(), gs = !qn && !isb && !bd ? guildSpotNow() : null, ct = state === 'world' && !QT.phase && !IT.open && !GU.open && (qn || isb || bd || !!gs || world.canTalk()); if ($('talk').hidden === ct) $('talk').hidden = !ct; qtButton(qn, isb, bd, gs); } else if (!$('talk').hidden) $('talk').hidden = true;
++  if (world.group.visible) { uploadStep(); queenWarmStep(); isabelWarmStep(); if (state === 'world' && !inPalace && !inChurch) world.aula.isabelUpdate(player.position.x, player.position.z, rdt, inGuild ? GUILD_ENV : inInn ? INN_ENV : ISA_ENV); world.update(rdt, clock.elapsedTime, player.position, cam.position, cam); if (inGuild && guild) guild.update(rdt, clock.elapsedTime, player.position.x, player.position.z); const qn = state === 'world' && queenNear(), isb = !qn && isabelNear(), bd = !qn && !isb && !!bedNow(), gs = !qn && !isb && !bd ? guildSpotNow() : null, wg = !qn && !isb && !bd && !gs ? talkTarget() : null, ct = state === 'world' && !QT.phase && !IT.open && !GU.open && (qn || isb || bd || !!gs || !!wg || world.canTalk()); if ($('talk').hidden === ct) $('talk').hidden = !ct; qtButton(qn, isb, bd, gs, wg); } else if (!$('talk').hidden) $('talk').hidden = true;
+   adaptRes();
+   renderer.render(scene, cam);
+ }

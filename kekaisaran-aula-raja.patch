@@ -1,0 +1,697 @@
+--- a/kekaisaran.js	2026-11-03 06:02:37.325782397 +0000
++++ b/kekaisaran.js	2026-11-03 11:09:24.731298493 +0000
+@@ -1,4 +1,5 @@
+ import * as THREE from 'three';
++import { buildAulaRaja } from './kekaisaran-aula.js';
+ import { APOTHEM, SIDE, WALL, RING, PLAZA_R, PALACE_SITE, ROAD_W, AVENUE_W, GATES, DISTRICTS, VERTS, EMPIRE_C, EMPIRE_YAW, GATE_OFFSET, toWorld, D1, d1Blocked, inD1, insidePoly, D2, d2p, d2Face, d2Blocked, inD2, D3, d3p, d3Face, d3Blocked, inD3, D4, d4p, d4Face, d4Blocked, inD4, D5, d5p, d5Face, d5Blocked, inD5 } from './kekaisaran-layout.js';
+ 
+ // ============================================================
+@@ -1099,16 +1100,17 @@
+   // ======================================================================
+   const pw = (lx, lz) => ({ x: -lz, z: lx });
+   const PI_ = Math.PI;
++  const hideIn = [];   // bagian luar istana yang menjorok ke ruang dalam (balok menara gerbang, pita hias selebar lantai, menara sudut): disembunyikan selama pemain di dalam (lihat kekaisaran-aula.js)
+   const winRow = (g, xs, y, z, w = 1.0, h = 2.0, ry = 0) => { for (const x of xs) mesh(new THREE.PlaneGeometry(w, h), M.window, x, y, z, g, false).rotation.y = ry; };
+   { // ---- aula utama ----
+     const mp = pw(0, -2), MB = { x: mp.x, z: mp.z, w: 34, d: 26, face: PI_ }, g = place(MB.x, MB.z, MB.face), w = MB.w, d = MB.d, H = 14;
+     const y0 = shell(g, w, d, H, 8, { wall: M.hall, roof: M.roofBlue, ov: 1.6, chimney: false, beams: false, windows: false });
+-    mesh(box(w + 0.5, 0.4, d + 0.5), M.plinth, 0, y0 + 7.2, 0, g, false); mesh(box(w + 0.7, 0.5, d + 0.7), M.plinth, 0, y0 + H - 0.1, 0, g, false);
++    hideIn.push(mesh(box(w + 0.5, 0.4, d + 0.5), M.plinth, 0, y0 + 7.2, 0, g, false)); mesh(box(w + 0.7, 0.5, d + 0.7), M.plinth, 0, y0 + H - 0.1, 0, g, false);
+     const fxs = [-15.2, -11.4, -7.6, 7.6, 11.4, 15.2], rows = [3.4, 7.8, 11.0];
+     for (const r of rows) { winRow(g, fxs, y0 + r, d / 2 + 0.07, 1.0, 2.0); winRow(g, [...fxs, -3.8, 0, 3.8], y0 + r, -d / 2 - 0.07, 1.0, 2.0, PI_); }
+     for (const r of rows) for (const sd of [-1, 1]) for (const z of [-9, -4.5, 0, 4.5, 9]) mesh(new THREE.PlaneGeometry(1.0, 2.0), M.window, sd * (w / 2 + 0.07), y0 + r, z, g, false).rotation.y = sd * PI_ / 2;
+     // menara gerbang (keep) di depan
+-    mesh(boxUV(14, 28, 9, 0.5), M.hall, 0, 14, d / 2 + 1.0, g); mesh(box(15.4, 0.9, 10.4), M.plinth, 0, 28.3, d / 2 + 1.0, g);
++    hideIn.push(mesh(boxUV(14, 28, 9, 0.5), M.hall, 0, 14, d / 2 + 1.0, g)); mesh(box(15.4, 0.9, 10.4), M.plinth, 0, 28.3, d / 2 + 1.0, g);
+     mesh(boxUV(10.4, 9, 7, 0.5), M.hall, 0, 33, d / 2 + 1.0, g); mesh(box(11.6, 0.8, 8.2), M.plinth, 0, 37.6, d / 2 + 1.0, g);
+     mesh(new THREE.ConeGeometry(8.2, 17, 4).rotateY(PI_ / 4), M.roofBlue, 0, 46.6, d / 2 + 1.0, g); mesh(cyl(0.1, 0.1, 6, 6), M.gold, 0, 56.6, d / 2 + 1.0, g, false); mesh(new THREE.SphereGeometry(0.5, 8, 6), M.gold, 0, 55.4, d / 2 + 1.0, g, false);
+     // pintu agung + portico
+@@ -1123,18 +1125,18 @@
+     { const em = new THREE.Mesh(new THREE.CircleGeometry(2.0, 28), crownEmM); em.position.set(0, 33.2, d / 2 + 4.52); g.add(em); }
+     for (const sx of [-1, 1]) { banner(g, 'palace', sx * 9.5, y0 + 7.0, d / 2 + 0.14, 1.5, 5.0); banner(g, 'palace', sx * 13.3, y0 + 7.0, d / 2 + 0.14, 1.5, 5.0); banner(g, 'palace', sx * 3.2, y0 + 17.0, d / 2 + 5.53, 1.5, 6.0); mesh(box(0.25, 0.4, 0.25), M.lantern, sx * 10.7, y0 + 2.0, d / 2 + 8.6, g, false); }
+     for (let i = 0; i < 5; i++) { const h = 0.13 * (5 - i); mesh(box(18 + i * 2.0, h, 1.4), M.plinth, 0, h / 2, d / 2 + 8.6 + i * 1.4, g); }
+-    for (const sx of [-1, 1]) for (const zz of [d / 2 - 0.4, -d / 2 + 0.4]) { const t = new THREE.Group(); t.position.set(sx * (w / 2 + 0.2), 0, zz); g.add(t); roundTower(t, 3.4, 24, 10.5, M.roofBlue); bcol(MB, sx * (w / 2 + 0.2), zz, 4.0); }
+-    colRect(MB, 0.4); { const tp = bp(MB, 0, d / 2 + 1.0); colRect({ x: tp.x, z: tp.z, w: 14, d: 9, face: PI_ }, 0.3); } { const sp = bp(MB, 0, d / 2 + 6.4); colRect({ x: sp.x, z: sp.z, w: 6.4, d: 1.4, face: PI_ }, 0); }
++    for (const sx of [-1, 1]) for (const zz of [d / 2 - 0.4, -d / 2 + 0.4]) { const t = new THREE.Group(); t.position.set(sx * (w / 2 + 0.2), 0, zz); g.add(t); hideIn.push(t); roundTower(t, 3.4, 24, 10.5, M.roofBlue); bcol(MB, sx * (w / 2 + 0.2), zz, 4.0); }
++    colRect(MB, 0.4); { const tp = bp(MB, 0, d / 2 + 1.0); colRect({ x: tp.x, z: tp.z, w: 14, d: 9, face: PI_ }, 0.3); }
+   }
+   yield;
+   for (const sdn of [-1, 1]) { // ---- dua sayap ----
+     const wp = pw(sdn * 23, -4), WB = { x: wp.x, z: wp.z, w: 12, d: 20, face: PI_ }, g = place(WB.x, WB.z, WB.face), w = WB.w, d = WB.d, H = 11;
+     const y0 = shell(g, w, d, H, 6.5, { wall: M.hall, roof: M.roofBlue, ov: 1.3, chimney: false, beams: false, windows: false });
+-    mesh(box(w + 0.4, 0.35, d + 0.4), M.plinth, 0, y0 + 5.6, 0, g, false);
++    hideIn.push(mesh(box(w + 0.4, 0.35, d + 0.4), M.plinth, 0, y0 + 5.6, 0, g, false));
+     for (const r of [3.2, 6.8, 9.4]) { winRow(g, [-3.8, 0, 3.8], y0 + r, d / 2 + 0.07, 1.0, 1.9); winRow(g, [-3.8, 0, 3.8], y0 + r, -d / 2 - 0.07, 1.0, 1.9, PI_); for (const s2 of [-1, 1]) for (const z of [-7, -2.3, 2.3, 7]) mesh(new THREE.PlaneGeometry(1.0, 1.9), M.window, s2 * (w / 2 + 0.07), y0 + r, z, g, false).rotation.y = s2 * PI_ / 2; }
+     door(g, d, y0, 1.7, 3.0); banner(g, 'palace', 0, y0 + 6.4, d / 2 + 0.14, 1.3, 3.4);
+     mesh(box(4.4, 0.4, 1.6), M.plinth, 0, 0.2, d / 2 + 0.9, g, false);
+-    const tx = sdn * 5.6; { const t = new THREE.Group(); t.position.set(tx, 0, d / 2 - 0.3); g.add(t); roundTower(t, 2.4, 17, 7, M.roofBlue); bcol(WB, tx, d / 2 - 0.3, 3.0); }
++    const tx = sdn * 5.6; { const t = new THREE.Group(); t.position.set(tx, 0, d / 2 - 0.3); g.add(t); hideIn.push(t); roundTower(t, 2.4, 17, 7, M.roofBlue); bcol(WB, tx, d / 2 - 0.3, 3.0); }
+     colRect(WB, 0.4);
+   }
+   { // ---- aula takhta berkubah di belakang ----
+@@ -1238,9 +1240,16 @@
+     tr.count = lf.count = nT; tr.castShadow = lf.castShadow = true; tr.receiveShadow = lf.receiveShadow = true; city.add(tr, lf); }
+   yield;
+ 
++  // ======================================================================
++  //  INTERIOR ISTANA — lantai 1: AULA RAJA (di dalam badan istana; tersembunyi sampai pemain masuk lewat pintu agung di portico).
++  //  Data tata letak & titik pindah: kekaisaran-istana-layout.js; isi ruangan, tabrakan & kamera: kekaisaran-aula.js; masuk/keluar: game.js (aulaGo).
++  // ======================================================================
++  const aula = buildAulaRaja({ hide: hideIn }); city.add(aula.group);
++  yield;
++
+   // ---------- Pembaruan per frame: air mengalir ----------
+   const upd = t => { T.water.offset.x = -t * 0.08; flames.forEach((f, i) => { f.scale.set(1 + 0.08 * Math.sin(t * 9 + i), 1 + 0.18 * Math.sin(t * 7 + i * 2), 1 + 0.08 * Math.sin(t * 9 + i)); }); for (const q of spin) { q.m.rotation.y = t * q.k; q.m.position.y = q.y + Math.sin(t * 1.3 + q.k) * 0.25; } };
+-  return { group, update: upd };
++  return { group, update: t => { upd(t); aula.update(t); }, aula };
+ }
+ 
+ export function buildKekaisaran(opts) { const it = buildKekaisaranGen(opts); let r; while (!(r = it.next()).done); return r.value; }
+--- a/world.js	2026-11-03 06:02:37.326446063 +0000
++++ b/world.js	2026-11-03 06:09:46.992701482 +0000
+@@ -133,6 +133,16 @@
+   // interior katedral & istana dibangun belakangan (di dalam chunk kota); game.js memanggilnya lewat objek perantara ini
+   const churchRef = { v: null }, palaceRef = { v: null }, palaceQueue = [];
+   const church = { get group() { return churchRef.v && churchRef.v.group; }, show: v => { if (churchRef.v) churchRef.v.show(v); } };
++  // Interior Istana Kekaisaran (Aula Raja, lantai 1): hidup di chunk Kota Kekaisaran; ready = false selama chunk belum selesai dibangun
++  const aulaRef = { v: null }; let indoor = 0, indoorK = 0;   // indoor 0/1 = pemain di dalam aula; indoorK = nilainya yang dihaluskan (meredupkan matahari & cahaya langit)
++  const aula = {
++    get ready() { return !!aulaRef.v; },
++    show: v => { indoor = v ? 1 : 0; if (aulaRef.v) aulaRef.v.show(v); },
++    collide: (p, r) => { if (aulaRef.v) aulaRef.v.collide(p, r); },
++    groundY: (x, z, y) => aulaRef.v ? aulaRef.v.groundY(x, z, y) : y,
++    area: (x, z, y) => aulaRef.v ? aulaRef.v.area(x, z, y) : '',
++    clipCam: (from, to) => aulaRef.v ? aulaRef.v.clipCam(from, to) : to,
++  };
+   const palace = {
+     get group() { return palaceRef.v && palaceRef.v.group; },
+     show: v => { if (palaceRef.v) palaceRef.v.show(v); },
+@@ -151,6 +161,7 @@
+   Object.assign(sun.shadow.camera, { left: -34, right: 34, top: 34, bottom: -34, near: 1, far: 140 });
+   sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.04;
+   group.add(hemi, sun, sun.target);
++  const hemiSky0 = hemi.color.clone(), hemiGround0 = hemi.groundColor.clone(), hemiSkyIn = new THREE.Color(0xffe4c0), hemiGroundIn = new THREE.Color(0x8a6a48);   // di dalam aula: cahaya langit jadi hangat (krem / cokelat), bukan biru / hijau
+   const SUN_OFF = new THREE.Vector3(-30, 45, 20);
+ 
+   // ---------- Langit ----------
+@@ -521,7 +532,7 @@
+       *build(c) {
+         const gen = buildKekaisaranGen({ colliders: c.colliders, rand: mulberry32(20261103), COARSE, geo: { trunkOak, trunkPine, oakLeaf, pineLeaf, grassGeo }, mat: { barkMat, leafMat, swayMat } });
+         let r; while (!(r = gen.next()).done) yield;
+-        upd = r.value.update; g.add(r.value.group); fixDecals(g); yield;
++        upd = r.value.update; aulaRef.v = r.value.aula; g.add(r.value.group); fixDecals(g); yield;
+       },
+       onReady() { if (prewarm) prewarm(g); },
+     });
+@@ -542,6 +553,7 @@
+     forestAmount,                                    // 0..1 seberapa dalam pemain di hutan (dipakai kabut di game.js)
+     forest: FOREST,
+     church,                                          // church.show(true/false): tampilkan interior katedral
++    aula,                                            // aula.show(true/false): interior Istana Kekaisaran (Aula Raja); aula.ready / collide / groundY / clipCam / area dipakai game.js saat pemain di dalam
+     palace,                                          // palace.show(true/false): interior istana; palace.collide / groundY / clipCam / area dipakai game.js saat pemain di dalam
+     talk: () => npcs.talk(), canTalk: () => npcs.canTalk(), talkName: () => npcs.talkName(),
+     update(dt, t, pp, cp, cam) {
+@@ -553,7 +565,9 @@
+       chunks.update(dt, t, pp, cp);                  // membangun / menampilkan / menyembunyikan chunk; chunk yang tampil meng-update isinya sendiri
+       npcs.update(dt, t, pp, cam);                      // NPC sudah menyembunyikan diri bila jauh (>70 m)
+       const fa = forestAmount(pp.x, pp.z); // di dalam hutan: cahaya sedikit lebih redup (teduh di bawah tajuk)
+-      hemi.intensity = 1.15 - 0.3 * fa; sun.intensity = 3.3 - 0.9 * fa;
++      indoorK += (indoor - indoorK) * Math.min(1, dt * 6);   // di dalam aula: matahari hampir padam & cahaya langit dikurangi (diterangi lampu gantung)
++      hemi.color.copy(hemiSky0).lerp(hemiSkyIn, indoorK); hemi.groundColor.copy(hemiGround0).lerp(hemiGroundIn, indoorK);
++      hemi.intensity = (1.15 - 0.3 * fa) * (1 - (aulaRef.v ? aulaRef.v.dim : 0.3) * indoorK); sun.intensity = (3.3 - 0.9 * fa) * (1 - 0.92 * indoorK);
+       sun.position.set(pp.x + SUN_OFF.x, SUN_OFF.y, pp.z + SUN_OFF.z); sun.target.position.set(pp.x, 0, pp.z);
+       sky.position.copy(cp); clouds.position.set(cp.x, 0, cp.z);
+       for (const c of clouds.children) { c.position.x += dt * c.userData.sp; if (c.position.x > 260) c.position.x = -260; }
+--- a/game.js	2026-11-03 06:02:37.327238742 +0000
++++ b/game.js	2026-11-03 11:12:33.313156974 +0000
+@@ -8,6 +8,7 @@
+ import { MEADOW, RUINS, MEADOW_SEG_X, meadowDist } from './meadow-layout.js';
+ import { SAWAH, KEKAISARAN, SAWAH_SPAWN, sawahDist } from './sawah-layout.js';
+ import { kekaisaranDist, districtAt, DISTRICTS, GATES } from './kekaisaran-layout.js';
++import { AULA, inAulaExit } from './kekaisaran-istana-layout.js';
+ import { DUSUN } from './meadow-village-layout.js';
+ import { buildSlime, buildGoblin, slimePose, goblinPose, makeBar } from './mobs.js';
+ import { audio } from './audio.js';
+@@ -454,6 +455,10 @@
+     const nx = l > 1e-4 ? dx / l : -Math.sin(P.face), nz = l > 1e-4 ? dz / l : -Math.cos(P.face); // arah dorong: dari pusat monster ke pemain
+     player.position.x = e.g.position.x + nx * min; player.position.z = e.g.position.z + nz * min;
+   }
++  if (state === 'world' && inAula) { // dalam Aula Raja: dinding, tiang, perabot & tangga panggung (tinggi pemain mengikuti lantai)
++    world.aula.collide(player.position, PLAYER_R);
++    player.position.y = world.aula.groundY(player.position.x, player.position.z, player.position.y); return;
++  }
+   if (state === 'world' && inPalace) { // dalam istana: dinding, perabot & NPC per lantai; tinggi pemain mengikuti lantai / tangga / panggung singgasana
+     world.palace.collide(player.position, PLAYER_R); world.clamp(player.position);
+     player.position.y = world.palace.groundY(player.position.x, player.position.z, player.position.y); return;
+@@ -1744,14 +1749,14 @@
+   P.face = fromGolem ? RUINS_DOOR.out.face : fromHole ? Math.atan2(sp.x, sp.z) : inTown ? SAWAH_SPAWN.face : Math.atan2(-SPAWN.x, -SPAWN.z); player.rotation.y = P.face; P.v.set(0, 0, 0);
+   camYaw = P.face + Math.PI; cam.position.set(sp.x - Math.sin(P.face) * 9, 4.2, sp.z - Math.cos(P.face) * 9);
+   $('boss').hidden = true; $('wave').textContent = fromGolem ? '🏛️ ' + RUINS.name : inTown ? '🌾 ' + SAWAH.name : '🌿 Dataran Hijau'; $('obj').hidden = false; doorBusy = false; doorNear = false;
+-  inVillage = false; inForest = false; inDeepForest = false; nearAncientGate = false; inCity = false; inMeadow = false; inSawah = false; inDusun = false; inKekaisaran = false; kekDistrict = -1; inChurch = false; churchBusy = false; world.church.show(false); inPalace = false; palaceBusy = false; palaceArea = ''; world.palace.show(false); worldFog.density = FOG_DENSITY;
++  inVillage = false; inForest = false; inDeepForest = false; nearAncientGate = false; inCity = false; inMeadow = false; inSawah = false; inDusun = false; inKekaisaran = false; kekDistrict = -1; inChurch = false; churchBusy = false; world.church.show(false); inPalace = false; palaceBusy = false; palaceArea = ''; world.palace.show(false); inAula = false; aulaBusy = false; aulaArea = ''; world.aula.show(false); worldFog.density = FOG_DENSITY;
+   if (inTown) inSawah = true;   // sudah di ladang: pesan masuk ladang tidak perlu muncul lagi
+   $('msg').textContent = note || (fromGolem ? '🏛️ ' + RUINS.name + (golemBeaten ? '\nPenjaga telah ditaklukkan' : '\nKamu selamat keluar dari Pintu Penjaga') : inTown ? '🌾 ' + SAWAH.name + '\nJalan terus ke timur menuju ' + KEKAISARAN.name + '\nKota Arunika ada di barat' : fromHole ? 'Kembali ke Dataran Hijau' : 'Dataran Hijau\nCari lubang menuju dungeon\n🏘️ ' + VILLAGE.name + ' ada di sebelah timur\n🌲 ' + FOREST.name + ' ada di timur desa');
+   wildT = 1; calmT = 0;
+   setTimeout(() => { if (state === 'world') $('msg').textContent = ''; }, 3500);
+   const f = $('fade'); f.style.transition = 'opacity .9s'; f.style.opacity = 0;
+ }
+-let inVillage = false, inForest = false, inDeepForest = false, nearAncientGate = false, inCity = false, inMeadow = false, inSawah = false, inDusun = false, inKekaisaran = false, kekDistrict = -1, inChurch = false, churchBusy = false, inPalace = false, palaceBusy = false, palaceArea = '';
++let inVillage = false, inForest = false, inDeepForest = false, nearAncientGate = false, inCity = false, inMeadow = false, inSawah = false, inDusun = false, inKekaisaran = false, kekDistrict = -1, inChurch = false, churchBusy = false, inPalace = false, palaceBusy = false, palaceArea = '', inAula = false, aulaBusy = false, aulaArea = '', aulaWave = '';
+ // Masuk / keluar Katedral Arunika: layar memudar, pemain dipindah ke ruang dalam (church.js) atau kembali ke alun-alun
+ function churchGo(inside) {
+   churchBusy = true; stick.x = stick.y = 0; P.v.set(0, 0, 0);
+@@ -1786,6 +1791,25 @@
+     setTimeout(() => { palaceBusy = false; }, 700);
+   }, 380);
+ }
++// Masuk / keluar Aula Raja (Istana Kekaisaran, lantai 1; lihat kekaisaran-istana-layout.js & kekaisaran-aula.js): layar memudar, pemain dipindah ke dalam / ke tangga luar
++function aulaGo(inside) {
++  aulaBusy = true; stick.x = stick.y = 0; P.v.set(0, 0, 0); if (inside) clearWild();
++  const f = $('fade'); f.style.transition = 'opacity .35s'; f.style.opacity = 1;
++  setTimeout(() => {
++    if (state !== 'world') { aulaBusy = false; return; }
++    const sp = inside ? AULA.spawnIn : AULA.spawnOut;
++    inAula = inside; world.aula.show(inside); aulaArea = '';
++    player.position.set(sp.x, inside ? world.aula.groundY(sp.x, sp.z, 0) : 0, sp.z); P.face = sp.face; player.rotation.y = P.face; P.v.set(0, 0, 0); world.refresh(player.position);
++    camYaw = P.face + Math.PI; cam.position.set(sp.x - Math.sin(P.face) * 6, player.position.y + 4, sp.z - Math.cos(P.face) * 6);
++    if (inside) world.aula.clipCam(player.position, cam.position);   // kamera tidak boleh di luar dinding saat muncul
++    if (inside) aulaWave = $('wave').textContent;
++    const m = inside ? '🏯 ' + AULA.name + '\nIstana Kekaisaran · Lantai 1\nPintu di kiri & kanan aula menuju Ruang Dewan dan Perpustakaan\nMelangkahlah ke pintu agung untuk keluar' : '👑 Halaman Istana';
++    $('msg').textContent = m; $('wave').textContent = inside ? '🏯 ' + AULA.name : (aulaWave || '🌿 Dataran Hijau');
++    setTimeout(() => { if ($('msg').textContent === m) $('msg').textContent = ''; }, 3600);
++    f.style.transition = 'opacity .5s'; f.style.opacity = 0;
++    setTimeout(() => { aulaBusy = false; }, 700);
++  }, 380);
++}
+ let secretFound = false; try { secretFound = !!JSON.parse(localStorage.getItem(SECRET_QUEST.storageKey) || '{}').found; } catch (e) { /* abaikan */ }
+ const ruinsLoad = () => { try { return JSON.parse(localStorage.getItem(RUINS.storageKey) || '{}'); } catch (e) { return {}; } };
+ const ruinsSave = p => { try { localStorage.setItem(RUINS.storageKey, JSON.stringify({ ...ruinsLoad(), ...p })); } catch (e) { /* abaikan */ } };
+@@ -1830,7 +1854,7 @@
+     else if (inKekaisaran && kd > 6) inKekaisaran = false;
+     if (inKekaisaran && dn !== kekDistrict && dn >= 0) {
+       kekDistrict = dn;
+-      if (dn === 0) say('👑 Halaman Istana\nTapak Istana Kekaisaran (belum dibangun)');
++      if (dn === 0) say('👑 Halaman Istana\nIstana Kekaisaran\n🚪 Naiki tangga & masuk lewat pintu agung menuju Aula Raja');
+       else { const d = DISTRICTS[dn - 1]; say((d.n === 1 ? '⚔️ ' : d.n === 2 ? '🛍️ ' : d.n === 3 ? '🏰 ' : d.n === 4 ? '🔮 ' : d.n === 5 ? '🏛️ ' : '🚧 ') + d.name + ' — ' + d.sub + (d.built ? '' : '\nSegera dibangun')); }
+     }
+   }
+@@ -1846,6 +1870,14 @@
+     const a = world.palace.area(px, pz, player.position.y);
+     if (a && a !== palaceArea) { palaceArea = a; $('wave').textContent = '🏰 ' + a; toast('🏰 ' + a, 2200); }
+   }
++  if (!aulaBusy && world.aula.ready && !inPalace && !inChurch) { // pintu agung Istana Kekaisaran (luar, di portico) & ujung serambi (dalam)
++    if (!inAula && inKekaisaran && Math.hypot(px - AULA.door.x, pz - AULA.door.z) < AULA.door.r) aulaGo(true);
++    else if (inAula && inAulaExit(px, pz)) aulaGo(false);
++  }
++  if (inAula && !aulaBusy) { // nama ruangan (judul di atas layar + toast) saat berpindah ruang / ke singgasana
++    const a = world.aula.area(px, pz, player.position.y);
++    if (a && a !== aulaArea) { const first = !aulaArea; aulaArea = a; $('wave').textContent = '🏯 ' + a; if (!first) toast('🏯 ' + a, 2200); }
++  }
+   if (!secretFound && Math.hypot(px - SECRET_GLADE.x, pz - SECRET_GLADE.z) < SECRET_GLADE.r + 3) { // pertama kali menemukan tempat rahasia (tersimpan di perangkat)
+     secretFound = true; try { localStorage.setItem(SECRET_QUEST.storageKey, JSON.stringify({ found: true })); } catch (e) { /* abaikan */ }
+     say('✨ Tempat Tersembunyi\nSesuatu menunggu di tengah lingkaran batu...'); }
+@@ -2170,7 +2202,7 @@
+   const C = CAMS[camMode];
+   if (!orbit()) camYaw += (0 - camYaw) * Math.min(1, rdt * 5); // mode lain: kembali ke depan. Mode 360°: bebas
+   zoomS += (zoom - zoomS) * Math.min(1, rdt * 10);
+-  let lx = target.x, lz = target.z, ly = C.look + (state === 'fall' ? player.position.y * 0.85 : inPalace ? player.position.y : P.air ? player.position.y * 0.8 : 0); // di istana lantai 2 kamera ikut menatap setinggi lantai
++  let lx = target.x, lz = target.z, ly = C.look + (state === 'fall' ? player.position.y * 0.85 : (inPalace || inAula) ? player.position.y : P.air ? player.position.y * 0.8 : 0); // di istana lantai 2 / panggung singgasana kamera ikut menatap setinggi lantai
+   if (state === 'lose') { // kamera sinematik: turun rendah, mendekat dari samping
+     const f = faceVec(), sd = new THREE.Vector3(f.z, 0, -f.x), low = clamp01((D.t - 0.3) / 1.2);
+     const want = target.clone().addScaledVector(sd, 4.6 - 1.3 * low).addScaledVector(f, 0.8).setY(1.4 - 0.85 * low);
+@@ -2180,8 +2212,10 @@
+     const off = new THREE.Vector3(C.off.x, Math.sin(pit) * D, Math.cos(pit) * D).multiplyScalar(zoomS * (1 - 0.3 * slowK)).applyAxisAngle(UP, camYaw); // slowmo: kamera mendekat
+     const want = target.clone().add(off);
+     if (inPalace) world.palace.clipCam(player.position, want);               // tidak menembus dinding / langit-langit istana
++    if (inAula) world.aula.clipCam(player.position, want);                   // sama untuk Aula Raja
+     cam.position.lerp(want, Math.min(1, rdt * 4));
+     if (inPalace) world.palace.clipCam(player.position, cam.position);       // peralihan halus tadi pun tidak boleh sempat di luar dinding
++    if (inAula) world.aula.clipCam(player.position, cam.position);
+   }
+   cam.position.add(new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), 0).multiplyScalar(shake * 0.4));
+   const dy = enemies.find(e => e.dying); if (dy && slowK > 0) { lx += (dy.g.position.x - lx) * 0.45 * slowK; lz += (dy.g.position.z - lz) * 0.45 * slowK; } // slowmo: kamera menoleh ke musuh terakhir
+--- a/index.html	2026-11-03 06:02:37.327089462 +0000
++++ b/index.html	2026-11-03 06:08:15.474187424 +0000
+@@ -20,7 +20,7 @@
+   <div id="obj" hidden><i id="objA">▲</i><span id="objD"></span><small>🕳️ Lubang Dungeon</small></div>
+   <div id="boss" hidden><span>Malzareth, Penyihir Kegelapan</span><div class="bar"><i id="bossbar"></i></div></div>
+   <div id="pl"><b>Louis</b><div class="bar hp"><i id="hpbar"></i></div></div>
+-  <div id="help">WASD gerak · Spasi / Klik serang · Shift berguling (lari di dunia luar) · E mengobrol dengan warga · 1 2 3 4 skill · C ganti kamera · Mouse putar & naik-turun kamera 360° · Roll mouse zoom · F layar penuh · Esc pengaturan · 🌲 Di hutan ada slime & goblin liar: lawan dengan serangan & skill · 🏰 Masuk istana lewat gerbang di ujung jalan utama kota · 🌾 Gerbang Timur kota menuju Padang Rumput, lalu terus ke timur sampai Ladang Sawah dan Kota Kekaisaran (kelima distrik)</div>
++  <div id="help">WASD gerak · Spasi / Klik serang · Shift berguling (lari di dunia luar) · E mengobrol dengan warga · 1 2 3 4 skill · C ganti kamera · Mouse putar & naik-turun kamera 360° · Roll mouse zoom · F layar penuh · Esc pengaturan · 🌲 Di hutan ada slime & goblin liar: lawan dengan serangan & skill · 🏰 Masuk istana lewat gerbang di ujung jalan utama kota · 👑 Di Kota Kekaisaran, naiki tangga istana & masuk lewat pintu agung ke Aula Raja · 🌾 Gerbang Timur kota menuju Padang Rumput, lalu terus ke timur sampai Ladang Sawah dan Kota Kekaisaran (kelima distrik)</div>
+   <div id="msg">Memuat karakter...</div>
+   <button id="again" hidden>↻ Main Lagi</button>
+   <button id="exit" hidden>🌿 Keluar Dungeon</button>
+--- /dev/null	2026-11-03 08:11:34.578963074 +0000
++++ b/kekaisaran-istana-layout.js	2026-11-03 11:09:36.604894592 +0000
+@@ -0,0 +1,75 @@
++// ============================================================
++//  ISTANA KEKAISARAN — INTERIOR LANTAI 1: AULA RAJA (data tata letak; murni angka, tanpa THREE)
++//  Interior ini ada DI DALAM badan istana yang sudah berdiri (aula utama 34 x 26 m + menara gerbang di depannya):
++//  pemain masuk lewat pintu agung di portico, layar memudar, lalu pemain dipindah ke dalam (sama seperti Katedral & Istana Arunika).
++//  Dinding luar tetap milik kekaisaran.js; dinding dalam dibangun kekaisaran-aula.js (sedikit menjorok ke dalam agar tidak saling tumpang).
++//
++//  Koordinat = lokal kota (x ke depan / searah jalan ladang, z ke kanan; pusat istana = (0,0)). Istana menghadap Gerbang Utama (-x).
++//    menara gerbang (serambi): x -16.5…-7.5, z -7…7        aula utama: x -11…15, z -17…17        (ruang takhta berkubah di belakang: x 15…25, belum dibuka)
++//  Dipakai oleh kekaisaran-aula.js (isi ruangan + tabrakan), world.js (API) dan game.js (pintu masuk / keluar).
++//  Tahap sekarang: HANYA Aula Raja (lantai 1). Ruangan lain & lantai 2 menyusul: tambahkan kotak baru di AULA_RECTS.
++// ============================================================
++import { toWorld, toLocal } from './kekaisaran-layout.js';
++const PI = Math.PI;
++
++export const AULA_NAME = 'Aula Raja';
++export const FLOOR_Y = 0.72;                       // tinggi lantai dalam (tepat di atas lantai alas istana yang setinggi 0,7)
++
++// ---------- Ruangan (kotak dalam koordinat lokal kota). h = tinggi langit-langit dari lantai ----------
++export const AULA_RECTS = [
++  { id: 'serambi', name: 'Serambi Agung', x0: -16.0, x1: -10.5, z0: -4.5,  z1: 4.5,  h: 9.6  },   // di dalam menara gerbang
++  { id: 'aula',    name: 'Aula Raja',     x0: -10.5, x1: 14.5,  z0: -16.5, z1: 16.5, h: 12.4 },
++  // sayap kiri (-z) & kanan (+z) dari arah pintu masuk; dindingnya mulai x = -3,2 agar bebas dari menara sudut sayap
++  { id: 'dewan',        name: 'Ruang Dewan',            x0: -3.2, x1: 13.5, z0: -28.5, z1: -17.5, h: 10.4 },
++  { id: 'perpustakaan', name: 'Perpustakaan Kerajaan',  x0: -3.2, x1: 13.5, z0: 17.5,  z1: 28.5,  h: 10.4 },
++];
++export const SIDE_DOOR = { x: 4.5, hw: 1.8, hy: 3.2 };                  // pintu lengkung aula -> sayap (di dinding samping aula, z = ±16,5)
++export const ROOM_X = { x0: -3.2, x1: 13.5, xc: 5.15 };
++// jembatan antar-ruangan (hanya untuk tabrakan; menutup celah 2 x radius pemain di ambang lengkung)
++export const AULA_BRIDGES = [{ x0: -11.6, x1: -9.4, z0: -4.5, z1: 4.5 }];
++for (const s of [-1, 1]) { const a = 15.4, b = 18.6; AULA_BRIDGES.push({ x0: SIDE_DOOR.x - SIDE_DOOR.hw, x1: SIDE_DOOR.x + SIDE_DOOR.hw, z0: s > 0 ? a : -b, z1: s > 0 ? b : -a }); }   // terowongan pintu sayap
++
++// ---------- Panggung singgasana: 3 anak tangga (tiap 1 m dalam, 0,4 m tinggi) lalu pelataran setinggi 1,2 m ----------
++export const DAIS = { x0: 8.0, x1: 14.5, z: 6.5, steps: 3, treadD: 1.0, stepH: 0.4 };
++DAIS.top = DAIS.steps * DAIS.stepH;                // 1,2
++DAIS.platX0 = DAIS.x0 + DAIS.steps * DAIS.treadD;  // 11
++export const THRONE = { x: 13.2, z: 0 };           // singgasana menghadap -x (ke pintu)
++
++// ---------- Perabot (dipakai bersama oleh pembangun & tabrakan) ----------
++export const COLS = { xs: [-7, -2, 3, 8], z: 8.5, r: 0.7, cr: 0.95 };          // 2 baris tiang: z = ±8,5
++export const WINDOWS_X = [-7.5, -1.5, 10.5];                                       // jendela lengkung di kedua dinding samping
++export const KNIGHT_X = [-4.5, 1.5, 7.5, 13.0];                                  // patung ksatria di kaki kedua dinding samping
++export const KNIGHT_Z = 15.5;
++export const BRAZIER = { x: 5.5, z: 4.4 };                                       // dua perapian di kiri-kanan jalur karpet
++export const CHANDELIERS = [{ x: -4, z: 0 }, { x: 3.5, z: 0 }, { x: 11, z: 0 }]; // tiga lampu gantung di sumbu tengah
++
++// ---------- Ruang Dewan (kiri, z negatif): meja rapat panjang + 10 kursi, peta kota di dinding luar, perapian di dinding ujung ----------
++export const DEWAN = { zc: -23, table: { x: ROOM_X.xc, len: 8.0, w: 2.2 }, fireplace: { x: 13.5, z: -23 } };
++DEWAN.chairs = [];
++for (const dx of [-3, -1, 1, 3]) for (const sd of [-1, 1]) DEWAN.chairs.push({ x: ROOM_X.xc + dx, z: DEWAN.zc + sd * 1.75, ry: sd > 0 ? PI : 0 });   // menghadap meja
++DEWAN.chairs.push({ x: ROOM_X.xc - 4.9, z: DEWAN.zc, ry: PI / 2 }, { x: ROOM_X.xc + 4.9, z: DEWAN.zc, ry: -PI / 2 });                            // kursi kepala di kedua ujung
++// ---------- Perpustakaan Kerajaan (kanan, z positif): rak buku di dinding, 2 meja baca, bola dunia ----------
++export const PERPUS = { zc: 23, tables: [{ x: 1.8, z: 22.2 }, { x: 8.4, z: 22.2 }], globe: { x: 11.6, z: 25.2 } };
++
++// ---------- Lingkaran tabrakan (lokal kota) ----------
++export const AULA_CIRCLES = [];
++for (const x of COLS.xs) for (const s of [-1, 1]) AULA_CIRCLES.push({ x, z: s * COLS.z, r: COLS.cr });
++for (const x of KNIGHT_X) for (const s of [-1, 1]) AULA_CIRCLES.push({ x, z: s * KNIGHT_Z, r: 0.75 });
++for (const s of [-1, 1]) AULA_CIRCLES.push({ x: BRAZIER.x, z: s * BRAZIER.z, r: 0.7 });
++for (const x of [2.0, 3.6, ROOM_X.xc, 6.7, 8.3]) AULA_CIRCLES.push({ x, z: DEWAN.zc, r: 1.25 });                       // meja rapat
++for (const c of DEWAN.chairs) AULA_CIRCLES.push({ x: c.x, z: c.z, r: 0.4 });
++AULA_CIRCLES.push({ x: DEWAN.fireplace.x - 0.3, z: DEWAN.fireplace.z, r: 1.2 });                                          // perapian
++for (const t of PERPUS.tables) for (const dx of [-0.6, 0.6]) AULA_CIRCLES.push({ x: t.x + dx, z: t.z, r: 0.95 });         // meja baca
++AULA_CIRCLES.push({ x: PERPUS.globe.x, z: PERPUS.globe.z, r: 0.85 });
++for (const dz of [-0.55, 0.55]) AULA_CIRCLES.push({ x: THRONE.x + 0.4, z: dz, r: 1.0 });   // singgasana
++// (tepi samping panggung bukan lingkaran: lihat aturan jalur di collide() kekaisaran-aula.js; naik ke panggung hanya lewat tangga depan)
++
++// ---------- Pintu & titik pindah (dunia) ----------
++export const AULA = {
++  name: AULA_NAME,
++  door: (() => { const p = toWorld(-17.8, 0); return { x: p.x, z: p.z, r: 2.2 }; })(),   // di portico, tepat di depan pintu agung
++  spawnIn: (() => { const p = toWorld(-12.8, 0), a = toWorld(0, 0), b = toWorld(1, 0); return { x: p.x, z: p.z, face: Math.atan2(b.x - a.x, b.z - a.z) }; })(),    // di serambi, menghadap ke dalam (+x kota)
++  spawnOut: (() => { const p = toWorld(-22.6, 0), a = toWorld(0, 0), b = toWorld(1, 0); return { x: p.x, z: p.z, face: Math.atan2(a.x - b.x, a.z - b.z) }; })(),  // di atas tangga luar, menghadap Gerbang Utama
++};
++// pemain di ujung serambi (dekat pintu agung) = keluar
++export const inAulaExit = (x, z) => { const p = toLocal(x, z); return p.x < -15.0 && Math.abs(p.z) < 3.8; };
+--- /dev/null	2026-11-03 08:11:34.578963074 +0000
++++ b/kekaisaran-aula.js	2026-11-03 11:12:18.998486046 +0000
+@@ -0,0 +1,373 @@
++import * as THREE from 'three';
++import { toWorld, toLocal } from './kekaisaran-layout.js';
++import { FLOOR_Y, AULA_RECTS, AULA_BRIDGES, AULA_CIRCLES, DAIS, THRONE, COLS, WINDOWS_X, KNIGHT_X, KNIGHT_Z, BRAZIER, CHANDELIERS, SIDE_DOOR, ROOM_X, DEWAN, PERPUS } from './kekaisaran-istana-layout.js';
++
++// ============================================================
++//  ISTANA KEKAISARAN — INTERIOR LANTAI 1: AULA RAJA
++//  Dibangun di dalam badan istana (lihat kekaisaran-istana-layout.js). Semua mesh hidup di grup yang TERSEMBUNYI sampai pemain masuk
++//  (tidak ada biaya render dari luar). Pencahayaan (default, ringan untuk Android): TANPA lampu titik. world.js mengubah cahaya langit jadi hangat
++//  & meredupkan matahari saat pemain di dalam (lihat `dim`), lalu bercak cahaya hangat (glow) di lantai meniru sinar lampu gantung / perapian / takhta.
++//  Nyala api, lilin & jendela memakai bahan tanpa bayangan (MeshBasicMaterial).
++//  Saklar USE_POINT_LIGHTS = true menambah 3 lampu titik sungguhan (lebih berdimensi, tetapi SEMUA bahan dunia luar ikut menghitung 3 lampu
++//  tambahan -> lebih berat di HP). Jika dinyalakan, coba dulu di perangkat target.
++//
++//  Ruangan: Serambi Agung, Aula Raja, Ruang Dewan (kiri) & Perpustakaan Kerajaan (kanan, lewat pintu lengkung di dinding samping aula).
++//  API: { group, show(v), ready, update(t), collide(pos, r), groundY(x, z, y), area(x, z, y), clipCam(from, to) }
++//  collide / clipCam mengubah vektor yang diberikan (dunia); groundY mengembalikan tinggi lantai (dunia).
++// ============================================================
++const PI = Math.PI;
++// ---- pengaturan cahaya (ubah di sini bila terlalu terang / gelap) ----
++const USE_POINT_LIGHTS = false;
++const LIGHT = { chand: 210, throne: 70, dist: 30, color: 0xffd7a0 };
++
++export function buildAulaRaja({ hide = [] } = {}) {   // hide: bagian luar istana yang menjorok ke dalam (disembunyikan selama pemain di dalam)
++  const root = new THREE.Group(); root.name = 'aula-raja-root';
++  const group = new THREE.Group(); group.name = 'aula-raja'; group.visible = false; root.add(group);
++  const Y = FLOOR_Y, WT = 0.4;                                                          // WT = tebal dinding dalam (di bawah 0,5 agar tidak berimpit dengan dinding luar)
++  const aula = AULA_RECTS[1], serambi = AULA_RECTS[0], H = aula.h, HS = serambi.h;
++
++  // ---------- Tekstur (canvas) ----------
++  const ctex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
++  const rep = (t, u, v) => { const k = t.clone(); k.repeat.set(u, v); k.needsUpdate = true; return k; };
++  const rnd = (a, b) => a + Math.random() * (b - a);
++  const marble = ctex(256, 256, (x, s) => {   // 2 x 2 petak marmer krem & kelabu hangat (1 petak = 2 m)
++    for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) { const dark = (r + c) % 2; const g = dark ? 150 + rnd(0, 14) : 226 + rnd(0, 12); x.fillStyle = `rgb(${g},${g - 6},${g - 16})`; x.fillRect(c * 128, r * 128, 128, 128);
++      x.strokeStyle = dark ? 'rgba(70,60,50,.25)' : 'rgba(150,130,110,.28)'; x.lineWidth = 1; for (let i = 0; i < 6; i++) { x.beginPath(); let px = c * 128 + rnd(0, 128), py = r * 128; x.moveTo(px, py); for (let k = 0; k < 5; k++) { px += rnd(-14, 14); py += rnd(14, 28); x.lineTo(px, py); } x.stroke(); } }
++    x.strokeStyle = 'rgba(60,50,40,.6)'; x.lineWidth = 2; x.strokeRect(1, 1, s - 2, s - 2); x.beginPath(); x.moveTo(128, 0); x.lineTo(128, s); x.moveTo(0, 128); x.lineTo(s, 128); x.stroke(); });
++  const stone = ctex(256, 256, (x, s) => {    // balok batu kapur hangat
++    x.fillStyle = '#9c9483'; x.fillRect(0, 0, s, s); for (let r = 0; r < 8; r++) { const off = (r % 2) * 32; for (let c = -1; c < 4; c++) { const g = 206 + rnd(0, 24); x.fillStyle = `rgb(${g},${g - 8},${g - 24})`; x.fillRect(c * 64 + off + 1.5, r * 32 + 1.5, 61, 29); } }
++    for (let i = 0; i < 700; i++) { x.fillStyle = `rgba(80,70,55,${rnd(0.03, 0.1)})`; x.fillRect(rnd(0, s), rnd(0, s), rnd(1, 3), rnd(1, 3)); } });
++  const woodT = ctex(128, 128, (x, s) => { x.fillStyle = '#4a2f1a'; x.fillRect(0, 0, s, s); for (let i = 0; i < 26; i++) { x.fillStyle = `rgba(${rnd(20, 60) | 0},${rnd(10, 30) | 0},5,${rnd(0.15, 0.4)})`; x.fillRect(0, rnd(0, s), s, rnd(1, 3)); } });
++  const ceilT = ctex(128, 128, (x, s) => { x.fillStyle = '#1f2a55'; x.fillRect(0, 0, s, s); x.strokeStyle = '#d9b24a'; x.lineWidth = 3; x.strokeRect(6, 6, s - 12, s - 12); x.lineWidth = 1.2; x.strokeRect(14, 14, s - 28, s - 28); x.fillStyle = '#d9b24a'; x.beginPath(); x.arc(s / 2, s / 2, 7, 0, 7); x.fill(); });
++  const carpetT = ctex(256, 256, (x, s) => {   // karpet merah: u = sepanjang jalur, v = melintang (bingkai emas di tepi v)
++    x.fillStyle = '#8d1d2a'; x.fillRect(0, 0, s, s); x.fillStyle = '#d9b24a'; x.fillRect(0, 10, s, 8); x.fillRect(0, s - 18, s, 8); x.fillRect(0, 26, s, 3); x.fillRect(0, s - 29, s, 3);
++    x.strokeStyle = 'rgba(217,178,74,.75)'; x.lineWidth = 3; for (let c = 0; c < 2; c++) { const cx = 64 + c * 128; x.beginPath(); x.moveTo(cx, 60); x.lineTo(cx + 40, 128); x.lineTo(cx, 196); x.lineTo(cx - 40, 128); x.closePath(); x.stroke(); x.beginPath(); x.arc(cx, 128, 9, 0, 7); x.stroke(); }
++    for (let i = 0; i < 500; i++) { x.fillStyle = `rgba(0,0,0,${rnd(0.03, 0.1)})`; x.fillRect(rnd(0, s), rnd(0, s), 2, 2); } });
++  const bannerT = ctex(128, 256, (x, w, h) => {   // panji kerajaan: ungu tua, bingkai emas, mahkota
++    x.fillStyle = '#4a2a78'; x.fillRect(0, 0, w, h); x.strokeStyle = '#d9b24a'; x.lineWidth = 6; x.strokeRect(5, 5, w - 10, h - 10); x.lineWidth = 2; x.strokeRect(14, 14, w - 28, h - 28);
++    x.fillStyle = '#d9b24a'; const cx = w / 2, cy = h * 0.4, L = 30; x.beginPath(); x.moveTo(cx - L, cy + L * .6); x.lineTo(cx - L, cy - L * .2); x.lineTo(cx - L * .5, cy + L * .15); x.lineTo(cx, cy - L * .6); x.lineTo(cx + L * .5, cy + L * .15); x.lineTo(cx + L, cy - L * .2); x.lineTo(cx + L, cy + L * .6); x.closePath(); x.fill();
++    x.fillRect(cx - L, cy + L * .7, L * 2, 7); x.beginPath(); x.moveTo(cx, h - 20); x.lineTo(cx + 14, h - 60); x.lineTo(cx - 14, h - 60); x.closePath(); x.fill(); });
++  const tapT = ctex(256, 320, (x, w, h) => {      // permadani besar di belakang singgasana
++    const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#5b2f8c'); g.addColorStop(1, '#2a1650'); x.fillStyle = g; x.fillRect(0, 0, w, h);
++    x.strokeStyle = '#d9b24a'; x.lineWidth = 8; x.strokeRect(8, 8, w - 16, h - 16); x.lineWidth = 2.5; x.strokeRect(22, 22, w - 44, h - 44);
++    x.fillStyle = '#d9b24a'; x.beginPath(); x.arc(w / 2, h * 0.42, 74, 0, 7); x.fill(); x.fillStyle = '#2a1650'; x.beginPath(); x.arc(w / 2, h * 0.42, 64, 0, 7); x.fill();
++    x.fillStyle = '#d9b24a'; const cx = w / 2, cy = h * 0.42, L = 44; x.beginPath(); x.moveTo(cx - L, cy + L * .6); x.lineTo(cx - L, cy - L * .25); x.lineTo(cx - L * .5, cy + L * .1); x.lineTo(cx, cy - L * .7); x.lineTo(cx + L * .5, cy + L * .1); x.lineTo(cx + L, cy - L * .25); x.lineTo(cx + L, cy + L * .6); x.closePath(); x.fill(); x.fillRect(cx - L, cy + L * .72, L * 2, 9);
++    for (let i = 0; i < 9; i++) { x.beginPath(); x.moveTo(40 + i * 22, h - 60); x.lineTo(51 + i * 22, h - 34); x.lineTo(62 + i * 22, h - 60); x.closePath(); x.fill(); } });
++  const plaqueT = ctex(1024, 128, (x, w, h) => { x.fillStyle = '#1a2348'; x.fillRect(0, 0, w, h); x.strokeStyle = '#d9b24a'; x.lineWidth = 8; x.strokeRect(5, 5, w - 10, h - 10); x.fillStyle = '#f1d27a'; x.font = 'bold 76px serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('✦  AULA RAJA  ✦', w / 2, h / 2 + 4); });
++  const shaftT = ctex(32, 128, (x, w, h) => { const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, 'rgba(255,240,200,0.55)'); g.addColorStop(1, 'rgba(255,240,200,0)'); x.fillStyle = g; x.fillRect(0, 0, w, h); const gx = x.createLinearGradient(0, 0, w, 0); gx.addColorStop(0, 'rgba(0,0,0,0.9)'); gx.addColorStop(0.3, 'rgba(0,0,0,0)'); gx.addColorStop(0.7, 'rgba(0,0,0,0)'); gx.addColorStop(1, 'rgba(0,0,0,0.9)'); x.globalCompositeOperation = 'destination-out'; x.fillStyle = gx; x.fillRect(0, 0, w, h); });
++
++  // ---------- Bahan ----------
++  const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, ...o });
++  const wallTex = (u, v) => new THREE.MeshStandardMaterial({ map: rep(stone, u, v), color: 0xf0e8d6, roughness: 0.95 });
++  const Mt = {
++    wall: wallTex(1, 1), gold: std(0xd9b24a, { roughness: 0.35, metalness: 0.65 }), goldDim: std(0xb8923a, { roughness: 0.5, metalness: 0.5 }), steel: std(0x8c93a0, { roughness: 0.4, metalness: 0.7 }),
++    wood: new THREE.MeshStandardMaterial({ map: woodT, color: 0xffffff, roughness: 0.7 }), stonePlain: std(0xcfc6b0), stoneDark: std(0x8b8473), velvet: std(0x9a1f2e, { roughness: 1 }), cream: std(0xf2e8cf, { roughness: 0.9 }),
++    ceiling: new THREE.MeshStandardMaterial({ map: rep(ceilT, 6, 7), color: 0xffffff, roughness: 1 }), plume: std(0xb8322a, { roughness: 1 }), iron: std(0x2f2f35, { roughness: 0.6, metalness: 0.4 }),
++    window: new THREE.MeshBasicMaterial({ color: 0xcfe2ff, fog: false }), flame: new THREE.MeshBasicMaterial({ color: 0xffc060, fog: false }),
++    shaft: new THREE.MeshBasicMaterial({ map: shaftT, transparent: true, opacity: 0.34, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }),
++  };
++  const bannerM = new THREE.MeshStandardMaterial({ map: bannerT, roughness: 1, side: THREE.DoubleSide });
++  const tapM = new THREE.MeshStandardMaterial({ map: tapT, roughness: 1 });
++
++  // ---------- Pembantu geometri ----------
++  const box = (w, h, d, ts = 0) => {   // ts > 0: UV tiap sisi diskalakan (1 ulangan tekstur = ts meter)
++    const g = new THREE.BoxGeometry(w, h, d); if (!ts) return g; const uv = g.attributes.uv, dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
++    for (let f = 0; f < 6; f++) for (let i = 0; i < 4; i++) { const k = f * 4 + i; uv.setXY(k, uv.getX(k) * dims[f][0] / ts, uv.getY(k) * dims[f][1] / ts); } return g; };
++  const cyl = (a, b, h, n = 10) => new THREE.CylinderGeometry(a, b, h, n);
++  const add = (geo, mat, x, y, z, parent = group) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
++  const archShape = (hw, hy) => { const s = new THREE.Shape(); s.moveTo(-hw, 0); s.lineTo(hw, 0); s.lineTo(hw, hy); s.absarc(0, hy, hw, 0, PI, false); s.lineTo(-hw, 0); return s; };
++  // dinding datar dengan lekuk pintu lengkung di tepi bawah (lekuk jadi bagian garis luar, bukan lubang -> triangulasi aman); dibuat di bidang XY, tebal ke +z
++  const wallWithArch = (w, h, hw, hy, mat, dx = 0, depth = WT) => { const s = new THREE.Shape(); s.moveTo(-w / 2, 0); s.lineTo(dx - hw, 0); s.lineTo(dx - hw, hy); s.absarc(dx, hy, hw, PI, 0, true); s.lineTo(dx + hw, 0); s.lineTo(w / 2, 0); s.lineTo(w / 2, h); s.lineTo(-w / 2, h); s.lineTo(-w / 2, 0);
++    return new THREE.Mesh(new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false }), mat); };
++  const wallExtM = new THREE.MeshStandardMaterial({ map: rep(stone, 1 / 3.2, 1 / 3.2), color: 0xf0e8d6, roughness: 0.95 });
++
++  // ---------- Lantai, karpet, langit-langit ----------
++  const floorMat = (u, v) => new THREE.MeshStandardMaterial({ map: rep(marble, u, v), roughness: 0.32, metalness: 0.08 });
++  const plane = (w, d, mat, x, y, z, flip = false) => { const m = add(new THREE.PlaneGeometry(w, d).rotateX(flip ? PI / 2 : -PI / 2), mat, x, y, z); return m; };
++  plane(25, 33, floorMat(25 / 4, 33 / 4), 2, Y, 0);                                    // aula: x -10,5…14,5
++  plane(5.5, 9, floorMat(5.5 / 4, 9 / 4), -13.25, Y, 0);                               // serambi: x -16…-10,5
++  plane(25, 33, Mt.ceiling, 2, Y + H, 0, true); plane(5.5, 9, Mt.ceiling, -13.25, Y + HS, 0, true);
++  { const L = 8.0 + 15.9, carpet = new THREE.MeshStandardMaterial({ map: rep(carpetT, L / 4, 1), roughness: 1 });   // dari ujung serambi sampai kaki panggung
++    add(new THREE.PlaneGeometry(L, 4).rotateX(-PI / 2), carpet, (-15.9 + 8.0) / 2, Y + 0.015, 0); }
++
++  // ---------- Dinding ----------
++  const wallBox = (cx, cz, sx, sz, h) => add(box(sx, h, sz, 3.2), Mt.wall, cx, Y + h / 2, cz);
++  for (const s of [-1, 1]) { const m = wallWithArch(25.8, H, SIDE_DOOR.hw, SIDE_DOOR.hy, wallExtM, s * (SIDE_DOOR.x - 2), WT); m.position.set(2, Y, s * 16.5); if (s < 0) m.rotation.y = PI; group.add(m); }   // dinding samping aula (z = ±16,5) + pintu ke sayap
++  wallBox(14.5 + WT / 2, 0, WT, 33 + 0.8, H);                                           // dinding belakang aula (x = 14,5)
++  for (const s of [-1, 1]) wallBox(-13.25, s * (4.5 + WT / 2), 5.5 + 0.4, WT, HS);      // dinding samping serambi (z = ±4,5)
++  { // dinding depan aula (x = -10,5) dengan ambang lengkung ke serambi
++    const m = wallWithArch(33, H, 4.5, 3.0, Mt.wall); m.rotation.y = -PI / 2; m.position.set(-10.5, Y, 0); group.add(m);    // ekstrusi ke +z lokal -> diputar agar tebal ke arah -x (menjauhi ruangan)
++    m.material = new THREE.MeshStandardMaterial({ map: rep(stone, 1 / 3.2, 1 / 3.2), color: 0xf0e8d6, roughness: 0.95 }); }
++  { // dinding depan serambi (x = -16) dengan lubang pintu agung (lebar 6,4 setinggi 5,6 + lengkung)
++    const m = wallWithArch(9, HS, 3.2, 5.6, Mt.wall); m.rotation.y = -PI / 2; m.position.set(-16.0, Y, 0); group.add(m);
++    m.material = new THREE.MeshStandardMaterial({ map: rep(stone, 1 / 3.2, 1 / 3.2), color: 0xf0e8d6, roughness: 0.95 }); }
++  // lis dinding: panel kayu di bawah (wainscot), pita emas, kornis
++  const trim = (cx, cz, sx, sz, y, h, mat, out = 0.12) => add(box(sx, h, sz), mat, cx, Y + y, cz);
++  for (const s of [-1, 1]) {
++    for (const [cx, len] of [[(-10.5 + SIDE_DOOR.x - SIDE_DOOR.hw) / 2, SIDE_DOOR.x - SIDE_DOOR.hw + 10.5], [(SIDE_DOOR.x + SIDE_DOOR.hw + 14.5) / 2, 14.5 - SIDE_DOOR.x - SIDE_DOOR.hw]]) { trim(cx, s * (16.5 - 0.07), len, 0.14, 1.2, 2.4, Mt.wood); trim(cx, s * (16.5 - 0.1), len, 0.2, 2.45, 0.14, Mt.gold); }
++    trim(2, s * (16.5 - 0.18), 25, 0.36, H - 0.2, 0.4, Mt.stoneDark); }
++  trim(14.5 - 0.07, 0, 0.14, 33, 1.2, 2.4, Mt.wood); trim(14.5 - 0.1, 0, 0.2, 33, 2.45, 0.14, Mt.gold); trim(14.5 - 0.18, 0, 0.36, 33, H - 0.2, 0.4, Mt.stoneDark);
++  for (const s of [-1, 1]) { trim(-10.5 + 0.07, s * 10.5, 0.14, 12, 1.2, 2.4, Mt.wood); trim(-10.5 + 0.1, s * 10.5, 0.2, 12, 2.45, 0.14, Mt.gold); }
++  trim(-10.5 + 0.18, 0, 0.36, 33, H - 0.2, 0.4, Mt.stoneDark);
++  // bingkai emas ambang lengkung ke serambi
++  { const arch = new THREE.Mesh(new THREE.TorusGeometry(4.5, 0.16, 8, 28, PI), Mt.gold); arch.rotation.y = PI / 2; arch.position.set(-10.45, Y + 3.0, 0); group.add(arch);
++    for (const s of [-1, 1]) add(box(0.3, 3.0, 0.32), Mt.gold, -10.45, Y + 1.5, s * 4.5); }
++  { const m = add(new THREE.PlaneGeometry(7.4, 0.925), new THREE.MeshStandardMaterial({ map: plaqueT, roughness: 0.8 }), -10.3, Y + 9.3, 0); m.rotation.y = PI / 2; }   // papan nama di atas ambang
++  // pintu agung (tampak dalam): bingkai emas di lubang + daun pintu kayu yang terbuka ke luar (di samping lubang)
++  { const door = new THREE.Mesh(new THREE.TorusGeometry(3.2, 0.14, 8, 24, PI), Mt.gold); door.rotation.y = PI / 2; door.position.set(-15.95, Y + 5.6, 0); group.add(door);
++    for (const s of [-1, 1]) { add(box(0.3, 5.6, 0.3), Mt.gold, -15.95, Y + 2.8, s * 3.2); add(box(0.28, 5.6, 0.9), Mt.wood, -15.7, Y + 2.8, s * 4.05); add(box(0.32, 0.18, 0.9), Mt.iron, -15.68, Y + 1.5, s * 4.05); add(box(0.32, 0.18, 0.9), Mt.iron, -15.68, Y + 4.2, s * 4.05); } }
++
++  // ---------- Balok langit-langit ----------
++  for (const x of [-8, -3, 2, 7, 12]) add(box(0.6, 0.7, 33), Mt.wood, x, Y + H - 0.35, 0);
++  for (const z of [-8.5, 0, 8.5]) add(box(25, 0.5, 0.6), Mt.wood, 2, Y + H - 0.25, z);
++  add(box(0.6, 0.6, 9), Mt.wood, -13.25, Y + HS - 0.3, 0); for (const x of [-15, -12, -10.8]) add(box(0.5, 0.5, 9), Mt.wood, x, Y + HS - 0.25, 0);
++
++  // ---------- Tiang (2 baris x 4) ----------
++  for (const x of COLS.xs) for (const s of [-1, 1]) {
++    const z = s * COLS.z, h = H - 0.9; add(box(1.7, 0.5, 1.7), Mt.stonePlain, x, Y + 0.25, z); add(cyl(COLS.r * 0.9, COLS.r, h - 1.3, 14), Mt.stonePlain, x, Y + 0.5 + (h - 1.3) / 2, z);
++    add(cyl(COLS.r * 1.12, COLS.r * 0.95, 0.35, 14), Mt.gold, x, Y + 0.5 + 0.17, z); add(cyl(COLS.r * 1.25, COLS.r * 0.9, 0.5, 14), Mt.gold, x, Y + h - 0.55, z); add(box(1.9, 0.4, 1.9), Mt.stonePlain, x, Y + h - 0.12, z);
++  }
++  // balok melintang di atas tiang
++  for (const s of [-1, 1]) add(box(25, 0.55, 0.9), Mt.stonePlain, 2, Y + H - 0.62, s * COLS.z);
++
++  // ---------- Jendela lengkung + berkas cahaya ----------
++  for (const s of [-1, 1]) for (const x of WINDOWS_X) {
++    const z = s * (16.5 - 0.02), g = new THREE.Group(); g.position.set(x, Y + 3.7, z); g.rotation.y = s > 0 ? PI : 0; group.add(g);   // menghadap ke dalam
++    add(new THREE.ShapeGeometry(archShape(1.0, 3.8)), Mt.window, 0, 0, 0, g);
++    for (const e of [-1, 1]) add(box(0.14, 3.8, 0.12), Mt.stoneDark, e * 1.0, 1.9, 0.03, g); add(box(2.1, 0.14, 0.12), Mt.stoneDark, 0, 0.0, 0.03, g); add(box(2.1, 0.12, 0.12), Mt.stoneDark, 0, 2.5, 0.03, g); add(box(0.1, 4.8, 0.1), Mt.stoneDark, 0, 2.4, 0.04, g);
++    const arch = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.1, 6, 16, PI), Mt.gold); arch.position.set(0, 3.8, 0.04); g.add(arch);
++    { const sg = new THREE.Group(); sg.position.set(x, Y + 4.9, s * 14.5); sg.rotation.x = s * 0.45; group.add(sg);   // atas di jendela, bawah lebih dekat ke tengah
++      add(new THREE.PlaneGeometry(2.0, 8), Mt.shaft, 0, 0, 0, sg); add(new THREE.PlaneGeometry(2.0, 8), Mt.shaft, 0, 0, 0, sg).rotation.y = PI / 2; }
++  }
++
++  // ---------- Panji, patung ksatria, obor di dinding samping ----------
++  const banner = (x, y, z, w, h, ry) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; group.add(g); add(new THREE.PlaneGeometry(w, h), bannerM, 0, 0, 0, g); add(cyl(0.05, 0.05, w + 0.5, 6), Mt.gold, 0, h / 2 + 0.05, 0.02, g).rotation.z = PI / 2; return g; };
++  const flameGeo = new THREE.ConeGeometry(0.11, 0.34, 6), flames = [];
++  const torch = (x, y, z, ry) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; group.add(g); add(box(0.12, 0.5, 0.12), Mt.iron, 0, 0, 0, g); add(cyl(0.12, 0.07, 0.22, 8), Mt.iron, 0, 0.3, 0.12, g); const f = add(flameGeo, Mt.flame, 0, 0.55, 0.12, g); flames.push(f); };
++  const knight = (x, z, ry) => {
++    const g = new THREE.Group(); g.position.set(x, Y, z); g.rotation.y = ry; group.add(g);
++    add(box(1.2, 0.5, 1.2), Mt.stonePlain, 0, 0.25, 0, g); add(box(1.0, 0.12, 1.0), Mt.gold, 0, 0.56, 0, g);
++    for (const e of [-1, 1]) { add(cyl(0.11, 0.13, 0.9, 7), Mt.steel, e * 0.17, 1.05, 0, g); add(box(0.2, 0.1, 0.32), Mt.steel, e * 0.17, 0.62, 0.07, g); }
++    add(cyl(0.3, 0.26, 0.95, 9), Mt.steel, 0, 1.95, 0, g); add(box(0.62, 0.14, 0.38), Mt.gold, 0, 1.45, 0, g); add(cyl(0.31, 0.31, 0.1, 9), Mt.gold, 0, 2.2, 0, g);
++    for (const e of [-1, 1]) { add(new THREE.SphereGeometry(0.17, 8, 6), Mt.steel, e * 0.4, 2.3, 0, g); add(cyl(0.07, 0.07, 0.8, 6), Mt.steel, e * 0.42, 1.8, 0, g); }
++    add(new THREE.SphereGeometry(0.22, 10, 8), Mt.steel, 0, 2.62, 0, g); add(box(0.3, 0.05, 0.05), Mt.iron, 0, 2.62, 0.2, g); add(new THREE.ConeGeometry(0.07, 0.4, 6), Mt.plume, 0, 2.95, -0.05, g);
++    add(cyl(0.028, 0.028, 3.4, 5), Mt.wood, 0.5, 2.2, 0.05, g); add(new THREE.ConeGeometry(0.07, 0.3, 5), Mt.gold, 0.5, 3.95, 0.05, g);   // tombak
++    const sh = add(cyl(0.34, 0.34, 0.06, 12), Mt.velvet, -0.5, 1.8, 0.22, g); sh.rotation.x = PI / 2; sh.rotation.z = 0.2; add(cyl(0.36, 0.36, 0.05, 12), Mt.gold, -0.5, 1.8, 0.2, g).rotation.x = PI / 2;
++  };
++  for (const s of [-1, 1]) {
++    for (const x of KNIGHT_X) { knight(x, s * KNIGHT_Z, s > 0 ? PI : 0); banner(x, Y + 7.8, s * (16.5 - 0.05), 1.6, 4.4, s > 0 ? PI : 0); }
++    for (const x of [-9, 12.5]) torch(x, Y + 3.4, s * (16.5 - 0.2), s > 0 ? PI : 0);
++  }
++  for (const s of [-1, 1]) { banner(-10.4, Y + 7.3, s * 8.6, 1.8, 5.6, PI / 2); banner(-10.4, Y + 7.3, s * 13.8, 1.8, 5.6, PI / 2); torch(-10.3, Y + 3.2, s * 6.2, PI / 2); torch(-10.3, Y + 3.2, s * 11.2, PI / 2); }
++
++  // ---------- Dinding belakang: permadani, tiang takhta, pintu semu ----------
++  { const t = add(new THREE.PlaneGeometry(8, 10), tapM, 14.3, Y + 6.4, 0); t.rotation.y = -PI / 2; add(box(0.14, 0.2, 8.6), Mt.gold, 14.3, Y + 11.5, 0); add(box(0.12, 0.2, 8.6), Mt.gold, 14.3, Y + 1.4, 0); }
++  for (const s of [-1, 1]) { add(box(0.4, 10.4, 0.9), Mt.stonePlain, 14.25, Y + 5.6, s * 4.6); add(cyl(0.45, 0.5, 0.5, 10), Mt.gold, 14.1, Y + 10.8, s * 4.6); add(box(0.4, 0.5, 1.1), Mt.gold, 14.25, Y + 0.25, s * 4.6);
++    const d = new THREE.Mesh(new THREE.ExtrudeGeometry(archShape(1.5, 3.2), { depth: 0.2, bevelEnabled: false }), Mt.wood); d.rotation.y = -PI / 2; d.position.set(14.5 - 0.02, Y, s * 11.6); group.add(d);   // pintu semu (ruang lain: menyusul)
++    const dr = new THREE.Mesh(new THREE.TorusGeometry(1.7, 0.1, 6, 16, PI), Mt.gold); dr.rotation.y = -PI / 2; dr.position.set(14.2, Y + 3.2, s * 11.6); group.add(dr);
++    for (const e of [-1, 1]) add(box(0.14, 3.2, 0.14), Mt.gold, 14.2, Y + 1.6, s * 11.6 + e * 1.7);
++    torch(14.2, Y + 3.6, s * 8.6, -PI / 2); torch(14.2, Y + 3.6, s * 14.4, -PI / 2); banner(14.3, Y + 7.6, s * 13.2, 1.6, 5.0, -PI / 2); }
++
++  // ---------- Panggung singgasana ----------
++  for (let i = 0; i < DAIS.steps; i++) {   // anak tangga batu + karpet di atasnya
++    const h = DAIS.stepH * (i + 1), x0 = DAIS.x0 + i * DAIS.treadD, cx = x0 + DAIS.treadD / 2;
++    add(box(DAIS.treadD, h, DAIS.z * 2), Mt.stonePlain, cx, Y + h / 2, 0); add(box(DAIS.treadD + 0.04, 0.05, DAIS.z * 2 + 0.06), Mt.gold, cx, Y + h - 0.02, 0);
++    add(box(DAIS.treadD - 0.02, 0.03, 4), new THREE.MeshStandardMaterial({ map: rep(carpetT, 0.25, 1), roughness: 1 }), cx, Y + h + 0.012, 0); }
++  { const pw = DAIS.x1 - DAIS.platX0, cx = DAIS.platX0 + pw / 2; add(box(pw, DAIS.top, DAIS.z * 2), Mt.stonePlain, cx, Y + DAIS.top / 2, 0); add(box(pw + 0.04, 0.06, DAIS.z * 2 + 0.06), Mt.gold, cx, Y + DAIS.top - 0.02, 0);
++    add(new THREE.PlaneGeometry(pw - 0.2, 4).rotateX(-PI / 2), new THREE.MeshStandardMaterial({ map: rep(carpetT, (pw - 0.2) / 4, 1), roughness: 1 }), cx - 0.1, Y + DAIS.top + 0.015, 0); }
++  { // singgasana
++    const g = new THREE.Group(); g.position.set(THRONE.x, Y + DAIS.top, THRONE.z); group.add(g);
++    add(box(2.6, 0.2, 2.2), Mt.gold, 0, 0.1, 0, g); add(box(1.9, 0.6, 1.5), Mt.goldDim, 0, 0.5, 0, g); add(box(1.7, 0.18, 1.3), Mt.velvet, 0, 0.88, 0.0, g);
++    add(box(0.35, 4.4, 1.9), Mt.gold, 0.85, 2.4, 0, g); add(box(0.2, 3.6, 1.5), Mt.velvet, 0.68, 2.2, 0, g);
++    for (const s of [-1, 1]) { add(box(1.5, 0.22, 0.28), Mt.gold, -0.0, 1.35, s * 0.95, g); add(box(0.3, 0.7, 0.3), Mt.gold, -0.5, 1.0, s * 0.95, g); }
++    const top = add(new THREE.ConeGeometry(0.28, 0.9, 5), Mt.gold, 0.85, 4.95, 0, g); void top; for (const s of [-1, 1]) add(new THREE.ConeGeometry(0.2, 0.7, 5), Mt.gold, 0.85, 4.65, s * 0.8, g);
++    add(new THREE.SphereGeometry(0.3, 12, 8), Mt.gold, 0.85, 4.55, 0, g).scale.set(1, 1, 2.2); add(box(1.2, 0.2, 0.8), Mt.velvet, -1.7, 0.1, 0, g); add(box(1.3, 0.1, 0.9), Mt.gold, -1.7, 0.03, 0, g);
++    const gem = add(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff3a4a }), 0.65, 3.2, 0, g); void gem; }
++
++  // ---------- Perapian di kiri-kanan jalur karpet ----------
++  const flameMat = Mt.flame, braziers = [];
++  for (const s of [-1, 1]) { const g = new THREE.Group(); g.position.set(BRAZIER.x, Y, s * BRAZIER.z); group.add(g);
++    add(cyl(0.45, 0.6, 0.35, 10), Mt.stonePlain, 0, 0.18, 0, g); add(cyl(0.16, 0.22, 1.0, 8), Mt.iron, 0, 0.85, 0, g); add(cyl(0.7, 0.4, 0.45, 12), Mt.iron, 0, 1.55, 0, g);
++    const f = add(new THREE.ConeGeometry(0.4, 1.0, 7), flameMat, 0, 2.05, 0, g); braziers.push(f); }
++
++  // ---------- Lampu gantung: cincin emas, rantai, lilin & nyala memakai InstancedMesh ----------
++  const nCand = 12, candGeo = cyl(0.06, 0.06, 0.32, 6), flGeo = new THREE.SphereGeometry(0.085, 6, 5), candles = [], flameI = [];
++  const chand = (c, hh) => {
++    const gy = Y + hh - 2.6; add(cyl(0.03, 0.03, 2.4, 5), Mt.iron, c.x, gy + 1.5, c.z);
++    const ring = add(new THREE.TorusGeometry(1.5, 0.07, 6, 28), Mt.gold, c.x, gy, c.z); ring.rotation.x = PI / 2; const r2 = add(new THREE.TorusGeometry(0.8, 0.06, 6, 20), Mt.gold, c.x, gy + 0.35, c.z); r2.rotation.x = PI / 2;
++    for (let k = 0; k < 4; k++) { const a = k * PI / 2, sp = add(cyl(0.02, 0.02, 1.0, 4), Mt.gold, c.x + Math.cos(a) * 0.75, gy + 0.17, c.z + Math.sin(a) * 0.75); sp.rotation.z = Math.PI / 2; sp.rotation.y = -a; }
++    add(new THREE.SphereGeometry(0.22, 10, 8), Mt.gold, c.x, gy - 0.35, c.z);
++    for (let k = 0; k < nCand; k++) { const a = k / nCand * PI * 2; candles.push([c.x + Math.cos(a) * 1.5, gy + 0.2, c.z + Math.sin(a) * 1.5]); flameI.push([c.x + Math.cos(a) * 1.5, gy + 0.46, c.z + Math.sin(a) * 1.5]); }
++    for (let k = 0; k < 6; k++) { const a = k / 6 * PI * 2 + 0.3; candles.push([c.x + Math.cos(a) * 0.8, gy + 0.55, c.z + Math.sin(a) * 0.8]); flameI.push([c.x + Math.cos(a) * 0.8, gy + 0.8, c.z + Math.sin(a) * 0.8]); } };
++  for (const c of CHANDELIERS) chand(c, H);
++
++  // ======================================================================
++  //  SAYAP: RUANG DEWAN (kiri, z negatif) & PERPUSTAKAAN KERAJAAN (kanan, z positif). Pintu lengkung di dinding samping aula (x = SIDE_DOOR.x).
++  // ======================================================================
++  const RH = 10.4, rx0 = ROOM_X.x0, rx1 = ROOM_X.x1, rxc = ROOM_X.xc, rw = rx1 - rx0, RD = 11;
++  const mkCarpet = base => ctex(256, 256, (x, sz) => { x.fillStyle = base; x.fillRect(0, 0, sz, sz); x.fillStyle = '#d9b24a'; x.fillRect(0, 10, sz, 8); x.fillRect(0, sz - 18, sz, 8); x.fillRect(0, 26, sz, 3); x.fillRect(0, sz - 29, sz, 3);
++    x.strokeStyle = 'rgba(217,178,74,.7)'; x.lineWidth = 3; for (let c = 0; c < 2; c++) { const cx = 64 + c * 128; x.beginPath(); x.moveTo(cx, 60); x.lineTo(cx + 40, 128); x.lineTo(cx, 196); x.lineTo(cx - 40, 128); x.closePath(); x.stroke(); } });
++  const blueCarpT = mkCarpet('#27408b');
++  const mapT = ctex(512, 320, (x, w, h) => {   // peta Kota Kekaisaran (segi lima, 5 distrik, istana di tengah)
++    x.fillStyle = '#d8c28a'; x.fillRect(0, 0, w, h); for (let i = 0; i < 900; i++) { x.fillStyle = `rgba(120,90,40,${rnd(0.02, 0.08)})`; x.fillRect(rnd(0, w), rnd(0, h), rnd(1, 4), rnd(1, 4)); }
++    x.strokeStyle = '#5b3d22'; x.lineWidth = 6; x.strokeRect(8, 8, w - 16, h - 16); x.lineWidth = 2; x.strokeRect(18, 18, w - 36, h - 36);
++    const cx = w / 2, cy = h / 2 + 14, R = 112, v = k => [cx + R * Math.sin(k * 2 * PI / 5), cy - R * Math.cos(k * 2 * PI / 5)];
++    x.fillStyle = 'rgba(120,150,90,.35)'; x.beginPath(); for (let k = 0; k < 5; k++) { const [a, b] = v(k); k ? x.lineTo(a, b) : x.moveTo(a, b); } x.closePath(); x.fill(); x.strokeStyle = '#4a2a1a'; x.lineWidth = 5; x.stroke();
++    x.lineWidth = 2; for (let k = 0; k < 5; k++) { const [a, b] = v(k); x.beginPath(); x.moveTo(cx, cy); x.lineTo(a, b); x.stroke(); }
++    x.beginPath(); x.arc(cx, cy, 38, 0, 7); x.stroke(); x.fillStyle = '#b8322a'; x.beginPath(); x.arc(cx, cy, 11, 0, 7); x.fill();
++    x.fillStyle = '#3a2412'; x.font = 'bold 16px serif'; x.textAlign = 'center'; for (let k = 0; k < 5; k++) { const [a, b] = v(k); x.fillText(String(k + 1), cx + (a - cx) * 1.2, cy + (b - cy) * 1.2 + 5); }
++    x.font = 'bold 26px serif'; x.fillText('KOTA KEKAISARAN', cx, 52); x.font = 'italic 14px serif'; x.fillText('Lima Distrik · Satu Mahkota', cx, 74); });
++  const globeT = ctex(128, 64, (x, w, h) => { x.fillStyle = '#2f6fb0'; x.fillRect(0, 0, w, h); x.fillStyle = '#5a9a4a'; for (let i = 0; i < 9; i++) { x.beginPath(); x.ellipse(rnd(0, w), rnd(10, h - 10), rnd(8, 20), rnd(5, 11), rnd(0, 3), 0, 7); x.fill(); } });
++  const mkBooks = () => ctex(256, 256, (x, w, h) => {   // rak buku: 5 papan, tiap papan penuh punggung buku warna-warni
++    x.fillStyle = '#3b2414'; x.fillRect(0, 0, w, h); const cols = ['#7a1f2b', '#1f3a7a', '#2f6a3a', '#8a6a2a', '#5a2a6a', '#a8742a', '#2a5a6a', '#6a2a1a'];
++    for (let r = 0; r < 5; r++) { let px = 5; const top = r * 51 + 6; while (px < w - 8) { const bw = rnd(7, 15), bh = rnd(32, 44); x.fillStyle = cols[(Math.random() * cols.length) | 0]; x.fillRect(px, top + (44 - bh) + 2, bw, bh); x.fillStyle = 'rgba(217,178,74,.7)'; x.fillRect(px + 1, top + (44 - bh) + 8, bw - 2, 2); px += bw + 1; } x.fillStyle = '#5a3a20'; x.fillRect(0, top + 46, w, 5); } });
++  const bookMs = [mkBooks(), mkBooks()].map(t => new THREE.MeshStandardMaterial({ map: t, roughness: 0.9 }));
++  const woodRoughM = Mt.wood, velvetBlue = std(0x27408b, { roughness: 1 });
++  const archWin = (x, z, ry) => {
++    const g = new THREE.Group(); g.position.set(x, Y + 3.4, z); g.rotation.y = ry; group.add(g);
++    add(new THREE.ShapeGeometry(archShape(1.0, 3.4)), Mt.window, 0, 0, 0, g);
++    for (const e of [-1, 1]) add(box(0.14, 3.4, 0.12), Mt.stoneDark, e * 1.0, 1.7, 0.03, g); add(box(2.1, 0.14, 0.12), Mt.stoneDark, 0, 0, 0.03, g); add(box(2.1, 0.12, 0.12), Mt.stoneDark, 0, 2.2, 0.03, g); add(box(0.1, 4.4, 0.1), Mt.stoneDark, 0, 2.2, 0.04, g);
++    const arch = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.1, 6, 16, PI), Mt.gold); arch.position.set(0, 3.4, 0.04); g.add(arch); };
++  const chair = (x, z, ry, big = false) => {
++    const g = new THREE.Group(); g.position.set(x, Y, z); g.rotation.y = ry; group.add(g);   // menghadap +z lokal; sandaran di belakang (-z)
++    add(box(0.56, 0.1, 0.56), Mt.velvet, 0, 0.52, 0, g); add(box(0.6, 0.06, 0.6), Mt.wood, 0, 0.45, 0, g);
++    for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(box(0.06, 0.45, 0.06), Mt.wood, sx * 0.25, 0.22, sz * 0.25, g);
++    const bh = big ? 1.5 : 0.85; add(box(0.6, bh, 0.07), Mt.wood, 0, 0.5 + bh / 2, -0.27, g); add(box(0.46, bh - 0.2, 0.04), Mt.velvet, 0, 0.5 + bh / 2, -0.22, g);
++    if (big) { add(box(0.7, 0.08, 0.1), Mt.gold, 0, 0.5 + bh, -0.27, g); add(new THREE.ConeGeometry(0.1, 0.3, 5), Mt.gold, 0, 0.5 + bh + 0.2, -0.27, g); } };
++  const candlestick = (x, y, z) => { add(cyl(0.05, 0.08, 0.3, 6), Mt.gold, x, y + 0.15, z); add(cyl(0.035, 0.035, 0.18, 6), Mt.cream, x, y + 0.39, z); const f = add(flameGeo, Mt.flame, x, y + 0.58, z); f.scale.set(0.6, 0.7, 0.6); flames.push(f); };
++  const frame = (x, y, z, w, h, ry) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; group.add(g); for (const e of [-1, 1]) { add(box(w + 0.3, 0.16, 0.12), Mt.gold, 0, e * (h / 2 + 0.08), 0, g); add(box(0.16, h, 0.12), Mt.gold, e * (w / 2 + 0.08), 0, 0, g); } };
++  const doorFrame = (z, ry) => { const g = new THREE.Group(); g.position.set(SIDE_DOOR.x, Y, z); g.rotation.y = ry; group.add(g); const a = new THREE.Mesh(new THREE.TorusGeometry(SIDE_DOOR.hw, 0.14, 8, 22, PI), Mt.gold); a.position.set(0, SIDE_DOOR.hy, 0); g.add(a); for (const e of [-1, 1]) add(box(0.28, SIDE_DOOR.hy, 0.3), Mt.gold, e * SIDE_DOOR.hw, SIDE_DOOR.hy / 2, 0, g); };
++  const doorSill = (s) => add(box(SIDE_DOOR.hw * 2, 0.02, 1.4), Mt.gold, SIDE_DOOR.x, Y + 0.012, s * 17.0);
++
++  for (const s of [-1, 1]) {
++    const zc = s * 23, zo = s * 28.5, zh = s * 17.5;
++    plane(rw, RD, floorMat(rw / 4, RD / 4), rxc, Y, zc); plane(rw, RD, Mt.ceiling, rxc, Y + RH, zc, true);
++    // dinding: luar, dua ujung, dan sisi aula (tebal 0,6 agar rapat dengan dinding aula; lubang pintu lengkung)
++    add(box(rw + 0.8, RH, WT, 3.2), Mt.wall, rxc, Y + RH / 2, s * (28.5 + WT / 2));
++    add(box(WT, RH, RD + 0.8, 3.2), Mt.wall, rx0 - WT / 2, Y + RH / 2, zc); add(box(WT, RH, RD + 0.8, 3.2), Mt.wall, rx1 + WT / 2, Y + RH / 2, zc);
++    { const m = wallWithArch(rw + 0.8, RH, SIDE_DOOR.hw, SIDE_DOOR.hy, wallExtM, s * (SIDE_DOOR.x - rxc), 0.6); m.position.set(rxc, Y, s * 16.9); if (s < 0) m.rotation.y = PI; group.add(m); }
++    // panel kayu + pita emas + kornis di tiap dinding dalam
++    const wains = (cx, cz, sx, sz) => { add(box(sx, 2.4, sz), Mt.wood, cx, Y + 1.2, cz); add(box(sx > sz ? sx : 0.2, 0.14, sx > sz ? 0.2 : sz), Mt.gold, cx, Y + 2.45, cz); };
++    wains(rxc, s * (28.5 - 0.07), rw, 0.14); wains(rx0 + 0.07, zc, 0.14, RD); wains(rx1 - 0.07, zc, 0.14, RD);
++    for (const [cx, len] of [[(rx0 + SIDE_DOOR.x - SIDE_DOOR.hw) / 2, SIDE_DOOR.x - SIDE_DOOR.hw - rx0], [(SIDE_DOOR.x + SIDE_DOOR.hw + rx1) / 2, rx1 - SIDE_DOOR.x - SIDE_DOOR.hw]]) wains(cx, s * (17.5 + 0.07), len, 0.14);
++    add(box(rw, 0.4, 0.36), Mt.stoneDark, rxc, Y + RH - 0.2, s * (28.5 - 0.18)); add(box(0.36, 0.4, RD), Mt.stoneDark, rx0 + 0.18, Y + RH - 0.2, zc); add(box(0.36, 0.4, RD), Mt.stoneDark, rx1 - 0.18, Y + RH - 0.2, zc); add(box(rw, 0.4, 0.36), Mt.stoneDark, rxc, Y + RH - 0.2, s * (17.5 + 0.18));
++    for (const x of [0, rxc, 10.3]) add(box(0.5, 0.6, RD), Mt.wood, x, Y + RH - 0.3, zc); add(box(rw, 0.4, 0.5), Mt.wood, rxc, Y + RH - 0.2, zc);
++    // pintu lengkung dari kedua sisi (bingkai emas) + ambang
++    doorFrame(s * 16.42, s > 0 ? PI : 0); doorFrame(s * 17.42, s > 0 ? 0 : PI); doorSill(s);
++    // lampu gantung, obor, panji
++    chand({ x: rxc, z: zc }, RH);
++    for (const dz of [-3.6, 3.6]) { torch(rx0 + 0.25, Y + 3.4, zc + dz, PI / 2); torch(rx1 - 0.25, Y + 3.4, zc + dz, -PI / 2); }
++    for (const x of [-0.5, 10.7]) torch(x, Y + 3.4, s * (17.5 + 0.25), s > 0 ? 0 : PI);
++    banner(rx0 + 0.06, Y + 6.8, zc, 1.8, 4.4, PI / 2);
++  }
++
++  // ---------- RUANG DEWAN (kiri) ----------
++  { const s = -1, zc = DEWAN.zc;
++    archWin(rxc - 4.6, s * (28.5 - 0.02), 0); archWin(rxc + 4.6, s * (28.5 - 0.02), 0);   // jendela di kiri-kanan peta
++    { const m = add(new THREE.PlaneGeometry(7.2, 4.5), new THREE.MeshStandardMaterial({ map: mapT, roughness: 0.9 }), rxc, Y + 5.6, s * (28.5 - 0.06)); void m; frame(rxc, Y + 5.6, s * (28.5 - 0.1), 7.2, 4.5, 0); }
++    add(new THREE.PlaneGeometry(11.5, 5.4).rotateX(-PI / 2), new THREE.MeshStandardMaterial({ map: rep(carpetT, 11.5 / 4, 1), roughness: 1 }), rxc, Y + 0.015, zc);   // karpet di bawah meja
++    const T = DEWAN.table, ty = Y + 1.0;
++    add(box(T.len, 0.16, T.w), Mt.wood, T.x, ty, zc); add(box(T.len + 0.12, 0.05, T.w + 0.12), Mt.gold, T.x, ty - 0.1, zc); add(box(T.len - 1.2, 0.015, 0.7), velvetBlue, T.x, ty + 0.09, zc);
++    for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(box(0.28, 0.95, 0.28), Mt.wood, T.x + sx * (T.len / 2 - 0.4), Y + 0.47, zc + sz * (T.w / 2 - 0.3));
++    for (const dx of [-2.4, 0, 2.4]) candlestick(T.x + dx, ty + 0.09, zc);
++    for (const dx of [-1.2, 1.2]) { add(box(0.7, 0.02, 0.5), Mt.cream, T.x + dx, ty + 0.1, zc + 0.5).rotation.y = dx * 0.1; add(box(0.5, 0.02, 0.4), Mt.cream, T.x + dx * 1.7, ty + 0.1, zc - 0.55).rotation.y = -dx * 0.12; }
++    DEWAN.chairs.forEach((c, i) => chair(c.x, c.z, c.ry, i >= DEWAN.chairs.length - 2));
++    { // perapian di dinding ujung (x = 13,5): menghadap -x
++      const g = new THREE.Group(); g.position.set(DEWAN.fireplace.x, Y, DEWAN.fireplace.z); g.rotation.y = -PI / 2; group.add(g);
++      add(box(3.4, 0.3, 1.2), Mt.stonePlain, 0, 0.15, 0.4, g); for (const e of [-1, 1]) add(box(0.55, 2.6, 0.95), Mt.stonePlain, e * 1.3, 1.6, 0.3, g);
++      add(box(3.2, 0.6, 0.95), Mt.stonePlain, 0, 3.0, 0.3, g); add(box(3.7, 0.14, 1.2), Mt.stoneDark, 0, 3.4, 0.4, g); add(box(2.4, RH - 3.4, 0.6), Mt.stonePlain, 0, 3.4 + (RH - 3.4) / 2, 0.1, g);
++      add(box(2.1, 2.3, 0.15), Mt.iron, 0, 1.5, 0.0, g);
++      for (const e of [-1, 1]) { const lg = add(cyl(0.14, 0.14, 1.5, 7), Mt.wood, e * 0.2, 0.42, 0.45, g); lg.rotation.z = PI / 2 + e * 0.2; }
++      for (const [fx, sc] of [[-0.45, 0.8], [0, 1.15], [0.45, 0.85]]) { const f = add(new THREE.ConeGeometry(0.34, 1.0, 7), Mt.flame, fx, 0.95, 0.4, g); f.scale.set(sc, sc, sc); braziers.push(f); }
++      add(new THREE.PlaneGeometry(1.5, 2.3), bannerM, 0, 5.3, 0.42, g); }
++  }
++
++  // ---------- PERPUSTAKAAN KERAJAAN (kanan) ----------
++  { const s = 1, zc = PERPUS.zc;
++    archWin(rxc, s * (28.5 - 0.02), PI);
++    const unit = (x, z, ry, mi) => { const g = new THREE.Group(); g.position.set(x, Y, z); g.rotation.y = ry; group.add(g);   // satu unit rak lebar 2 m, menghadap +z lokal
++      add(box(2.0, 4.9, 0.6), Mt.wood, 0, 2.45, -0.3, g); add(new THREE.PlaneGeometry(1.84, 4.5), bookMs[mi], 0, 2.4, 0.005, g); for (const e of [-1, 1]) add(box(0.08, 4.9, 0.64), Mt.goldDim, e * 1.0, 2.45, -0.3, g); add(box(2.1, 0.14, 0.7), Mt.gold, 0, 4.95, -0.3, g); };
++    let k = 0; for (const x0 of [-2.9, 7.2]) for (let i = 0; i < 3; i++) unit(x0 + 1 + i * 2, s * 28.5, PI, (k++) % 2);                                  // dinding luar (jendela di tengah)
++    for (let i = 0; i < 5; i++) { unit(rx0, zc - 5 + 1 + i * 2, PI / 2, (k++) % 2); unit(rx1, zc - 5 + 1 + i * 2, -PI / 2, (k++) % 2); }               // kedua dinding ujung
++    add(new THREE.PlaneGeometry(14.5, 5.2).rotateX(-PI / 2), new THREE.MeshStandardMaterial({ map: rep(blueCarpT, 14.5 / 4, 1), roughness: 1 }), rxc + 1.2, Y + 0.015, 22.2);
++    for (const t of PERPUS.tables) {
++      add(box(2.6, 0.12, 1.3), Mt.wood, t.x, Y + 0.95, t.z); add(box(2.7, 0.05, 1.4), Mt.gold, t.x, Y + 0.87, t.z); for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(box(0.14, 0.92, 0.14), Mt.wood, t.x + sx * 1.15, Y + 0.46, t.z + sz * 0.5);
++      candlestick(t.x, Y + 1.01, t.z); for (const [dx, c] of [[-0.8, 0x7a1f2b], [0.7, 0x1f3a7a]]) add(box(0.4, 0.07, 0.3), std(c), t.x + dx, Y + 1.04, t.z + 0.1).rotation.y = dx * 0.3; add(box(0.5, 0.025, 0.36), Mt.cream, t.x + 0.1, Y + 1.03, t.z - 0.3);
++      for (const dx of [-0.7, 0.7]) { chair(t.x + dx, t.z + 1.05, PI); chair(t.x + dx, t.z - 1.05, 0); } }
++    { const g = PERPUS.globe; add(cyl(0.45, 0.55, 0.12, 12), Mt.wood, g.x, Y + 0.06, g.z); add(cyl(0.1, 0.12, 0.9, 8), Mt.wood, g.x, Y + 0.55, g.z);
++      const ring = add(new THREE.TorusGeometry(0.66, 0.035, 6, 24), Mt.gold, g.x, Y + 1.35, g.z); ring.rotation.y = 0.5; ring.rotation.x = 0.3;
++      add(new THREE.SphereGeometry(0.55, 20, 14), new THREE.MeshStandardMaterial({ map: globeT, roughness: 0.6 }), g.x, Y + 1.35, g.z); }
++    { const lad = new THREE.Group(); lad.position.set(0.3, Y, 28.5 - 0.95); lad.rotation.x = -0.18; group.add(lad); for (const e of [-1, 1]) add(box(0.07, 4.3, 0.07), Mt.wood, e * 0.32, 2.15, 0, lad); for (let i = 0; i < 9; i++) add(box(0.64, 0.05, 0.06), Mt.wood, 0, 0.4 + i * 0.46, 0, lad); }
++  }
++  // cahaya hangat tambahan di bawah lampu gantung & perapian ruang sayap (digambar di bawah, di blok glow)
++  { const im = new THREE.InstancedMesh(candGeo, Mt.cream, candles.length), fm = new THREE.InstancedMesh(flGeo, Mt.flame, flameI.length), d = new THREE.Object3D();
++    candles.forEach((p, i) => { d.position.set(p[0], p[1], p[2]); d.updateMatrix(); im.setMatrixAt(i, d.matrix); }); flameI.forEach((p, i) => { d.position.set(p[0], p[1], p[2]); d.scale.set(1, 1.5, 1); d.updateMatrix(); fm.setMatrixAt(i, d.matrix); }); group.add(im, fm); }
++
++  // ---------- Lampu titik (opsional; lihat USE_POINT_LIGHTS). Di luar grup tersembunyi agar jumlah lampu tetap -> tidak ada kompilasi ulang shader saat masuk ----------
++  const lights = [];
++  if (USE_POINT_LIGHTS) {
++    const L1 = new THREE.PointLight(LIGHT.color, 0, LIGHT.dist, 2), L2 = new THREE.PointLight(LIGHT.color, 0, LIGHT.dist, 2), L3 = new THREE.PointLight(0xffc880, 0, 18, 2);
++    L1.position.set(CHANDELIERS[0].x, Y + H - 3.2, 0); L2.position.set(CHANDELIERS[1].x, Y + H - 3.2, 0); L3.position.set(THRONE.x - 2.5, Y + DAIS.top + 3.5, 0);
++    root.add(L1, L2, L3); lights.push([L1, LIGHT.chand], [L2, LIGHT.chand], [L3, LIGHT.throne]);
++  }
++  // ---------- Bercak cahaya hangat di lantai (tambahan, tanpa biaya lampu): gradasi radial aditif ----------
++  { const glowT = ctex(128, 128, (x, w, h) => { const g = x.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2); g.addColorStop(0, 'rgba(255,214,140,0.65)'); g.addColorStop(0.5, 'rgba(255,190,110,0.22)'); g.addColorStop(1, 'rgba(255,170,90,0)'); x.fillStyle = g; x.fillRect(0, 0, w, h); });
++    const glowM = new THREE.MeshBasicMaterial({ map: glowT, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
++    const glow = (x, z, d, op = 1) => { const m = add(new THREE.PlaneGeometry(d, d).rotateX(-PI / 2), glowM, x, Y + 0.035, z); if (op !== 1) m.scale.set(op, 1, op); return m; };
++    for (const c of CHANDELIERS.slice(0, 2)) glow(c.x, c.z, 15);            // di bawah dua lampu gantung (yang ketiga berada di atas panggung)
++    glow(BRAZIER.x, BRAZIER.z, 6); glow(BRAZIER.x, -BRAZIER.z, 6);          // perapian
++    { const m = add(new THREE.PlaneGeometry(11, 11).rotateX(-PI / 2), glowM, 12.2, Y + DAIS.top + 0.05, 0); void m; }   // di atas panggung singgasana
++    for (const s of [-1, 1]) glow(rxc, s * 23, 13);                              // di bawah lampu gantung kedua ruang sayap
++    glow(DEWAN.fireplace.x - 1.6, DEWAN.fireplace.z, 6);                           // di depan perapian Ruang Dewan
++  }
++  let shown = false, last = null;   // last = posisi lokal terakhir setelah tabrakan (dipakai aturan tepi panggung)
++
++  // ---------- Tabrakan & tinggi lantai (semua dihitung di koordinat lokal kota) ----------
++  const inRect = (r, x, z, m) => x >= r.x0 + m && x <= r.x1 - m && z >= r.z0 + m && z <= r.z1 - m;
++  const inside = (x, z, m) => AULA_RECTS.some(r => inRect(r, x, z, m)) || AULA_BRIDGES.some(r => inRect(r, x, z, m));
++  const nearest = (x, z, m) => {   // titik terdekat di dalam gabungan kotak yang dikecilkan m
++    let bx = x, bz = z, bd = Infinity; for (const r of [...AULA_RECTS, ...AULA_BRIDGES]) {
++      const x0 = r.x0 + m, x1 = r.x1 - m, z0 = r.z0 + m, z1 = r.z1 - m; if (x0 > x1 || z0 > z1) continue;
++      const cx = Math.min(Math.max(x, x0), x1), cz = Math.min(Math.max(z, z0), z1), d = (cx - x) * (cx - x) + (cz - z) * (cz - z); if (d < bd) { bd = d; bx = cx; bz = cz; } }
++    return [bx, bz]; };
++  const rectAt = (x, z) => AULA_RECTS.find(r => inRect(r, x, z, -0.2)) || aula;
++  const stepY = (x, z) => {   // tinggi relatif panggung di titik (x, z); 0 di luar panggung
++    if (Math.abs(z) > DAIS.z || x < DAIS.x0) return 0;
++    if (x >= DAIS.platX0) return DAIS.top;
++    const t = x - DAIS.x0, i = Math.min(DAIS.steps - 1, Math.floor(t)), f = t - i, k = Math.min(1, f / 0.35), s = k * k * (3 - 2 * k); return DAIS.stepH * (i + s); };
++
++  return {
++    group: root, ready: true,
++    dim: USE_POINT_LIGHTS ? 0.5 : 0.22,   // seberapa banyak world.js meredupkan cahaya langit di dalam (0 = tidak, 1 = gelap); tanpa lampu titik harus tetap terang
++    show(v) { shown = v; last = null; group.visible = v; for (const o of hide) o.visible = !v; for (const [l, b] of lights) l.intensity = v ? b : 0; },
++    update(t) {
++      if (!shown) return;
++      const f = 0.86 + 0.1 * Math.sin(t * 11) + 0.05 * Math.sin(t * 17.3 + 1); Mt.flame.color.setRGB(1, 0.66 + 0.1 * f, 0.22 + 0.1 * f);
++      for (let i = 0; i < flames.length; i++) { const s = 0.9 + 0.2 * Math.sin(t * 9 + i * 1.7); flames[i].scale.set(s, 0.9 + 0.25 * Math.sin(t * 12 + i), s); }
++      for (let i = 0; i < braziers.length; i++) { const s = 1 + 0.12 * Math.sin(t * 8 + i * 2); braziers[i].scale.set(s, 1 + 0.2 * Math.sin(t * 10 + i * 3), s); }
++      if (lights.length) { lights[0][0].intensity = LIGHT.chand * (0.96 + 0.05 * Math.sin(t * 7.1)); lights[1][0].intensity = LIGHT.chand * (0.96 + 0.05 * Math.sin(t * 6.3 + 2)); lights[2][0].intensity = LIGHT.throne * (0.95 + 0.06 * Math.sin(t * 9.2 + 1)); }
++    },
++    collide(pos, r) {
++      const p = toLocal(pos.x, pos.z); let x = p.x, z = p.z;
++      if (!inside(x, z, r)) [x, z] = nearest(x, z, r);
++      for (const c of AULA_CIRCLES) { const dx = x - c.x, dz = z - c.z, min = c.r + r, d2 = dx * dx + dz * dz; if (d2 >= min * min) continue; const d = Math.sqrt(d2) || 1e-4; x = c.x + dx / d * min; z = c.z + dz / d * min; }
++      if (!inside(x, z, r)) [x, z] = nearest(x, z, r);
++      // tepi samping panggung: naik / turun hanya lewat tangga depan. Sisi ditentukan dari posisi SEBELUMNYA (bukan dari posisi sekarang),
++      // jadi lonjakan besar dalam satu frame (lag, berguling) tidak bisa menembus tepi.
++      if (x >= DAIS.x0) { const az = Math.abs(z), lo = DAIS.z - r, hi = DAIS.z + r;
++        if (az > lo && az < hi) { const wasOn = last ? Math.abs(last.z) < DAIS.z : az < DAIS.z; z = (z < 0 ? -1 : 1) * (wasOn ? lo : hi); } }
++      last = { x, z };
++      const w = toWorld(x, z); pos.x = w.x; pos.z = w.z;
++    },
++    groundY(wx, wz) { const p = toLocal(wx, wz); return Y + stepY(p.x, p.z); },
++    area(wx, wz) { const p = toLocal(wx, wz), r = rectAt(p.x, p.z); if (r.id === 'aula' && p.x >= DAIS.x0 && Math.abs(p.z) <= DAIS.z) return 'Singgasana Kekaisaran'; return r.name; },
++    clipCam(from, to) {   // kamera tidak boleh menembus dinding / langit-langit / lantai
++      const f = toLocal(from.x, from.z); let q = toLocal(to.x, to.z);
++      { // telusuri dari pemain ke arah kamera dengan langkah 0,25 m: berhenti di dinding PERTAMA (pencarian biner bisa melompati dinding ke ruang sebelah)
++        const dx = q.x - f.x, dz = q.z - f.z, n = Math.max(1, Math.ceil(Math.hypot(dx, dz) / 0.25)); let lo = 0, hi = -1;
++        for (let i = 1; i <= n; i++) { const t = i / n; if (inside(f.x + dx * t, f.z + dz * t, 0.4)) lo = t; else { hi = t; break; } }
++        if (hi >= 0) { for (let i = 0; i < 8; i++) { const m = (lo + hi) / 2; if (inside(f.x + dx * m, f.z + dz * m, 0.4)) lo = m; else hi = m; } q = { x: f.x + dx * lo, z: f.z + dz * lo }; } }
++      const r = rectAt(q.x, q.z), w = toWorld(q.x, q.z); to.x = w.x; to.z = w.z; to.y = Math.min(Math.max(to.y, Y + 0.35), Y + r.h - 0.4); return to;
++    },
++  };
++}

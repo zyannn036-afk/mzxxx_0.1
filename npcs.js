@@ -3,9 +3,13 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { NPCS } from './village-layout.js';
 import { FOREST_NPC, SECRET_CENTAUR } from './forest-layout.js';
-import { CITY } from './city-layout.js';
+import { DUSUN_NPCS } from './meadow-village-layout.js';
+import { SAWAH_NPCS, SAWAH_SEG_X, sawahSegOf } from './sawah-layout.js';
+import { CITY, PALACE } from './city-layout.js';
 import { CITY_NPCS, CITY_NPC_FILES } from './city-npc-layout.js';
 import { loadCityHumans } from './city-npcs.js';
+import { PALACE_NPCS } from './palace-npc-layout.js';
+import { loadPalaceNpcs } from './palace-npcs.js';
 
 // ============================================================
 //  NPC warga desa — model "Stylized NPC - Peasant Nolant" (FBX) dengan animasi Idle & Walk.
@@ -78,8 +82,16 @@ function drawBubble(t, name, text) {
   x.fillStyle = '#3a2a18'; x.font = '30px Georgia'; lines.forEach((l, i) => x.fillText(l, 36, oy + 88 + i * 38)); t.tex.needsUpdate = true;
 }
 
-export function createNPCs({ colliders, rand }) {
+// colliders      = daftar collider BERGERAK milik chunk hutan+desa (warga desa, penjaga hutan, centaur)
+// cityColliders  = daftar collider bergerak milik chunk kota (warga kota)
+// cityReady()    = true kalau chunk kota sudah selesai dibangun (model warga kota & istana baru mulai dimuat sesudahnya)
+// meadowColliders = daftar collider bergerak milik chunk padang yang memuat Dusun Ilalang (warga dusun)
+// group dipasang di chunk hutan+desa; cityGroup (warga kota, Ratu & Putri) dipasang di chunk kota; meadowGroup (warga Dusun Ilalang) di chunk padang
+export function createNPCs({ colliders, cityColliders = colliders, meadowColliders = colliders, sawahColliders = [], rand, palace = null, cityReady = () => true, prewarm = null }) {
   const group = new THREE.Group(); group.name = 'npc';
+  const cityGroup = new THREE.Group(); cityGroup.name = 'npc-kota';
+  const meadowGroup = new THREE.Group(); meadowGroup.name = 'npc-dusun';
+  const sawahGroups = SAWAH_SEG_X.slice(1).map((_, i) => { const g = new THREE.Group(); g.name = 'npc-sawah-' + (i + 1); return g; });   // satu grup per bagian chunk Ladang Sawah (warga ikut tampil / sembunyi bersama chunk-nya)
   const npcs = [];
   let target = null; // NPC yang bisa diajak bicara sekarang
   const closeTalk = n => { n.talking = false; n.talkT = 0; n.bub.spr.visible = false; };
@@ -101,7 +113,8 @@ export function createNPCs({ colliders, rand }) {
     const texCache = {};
     const tex = k => texCache[k] || (texCache[k] = (() => { const t = new THREE.TextureLoader().load(TEX[k]); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t; })());
 
-    for (const def of [...NPCS, FOREST_NPC]) { // warga desa + penjaga hutan
+    for (const def of [...NPCS, FOREST_NPC, ...DUSUN_NPCS, ...SAWAH_NPCS]) { // warga desa + penjaga hutan + warga Dusun Ilalang + warga Ladang Sawah
+      const inDusun = DUSUN_NPCS.includes(def), sIdx = SAWAH_NPCS.includes(def) ? sawahSegOf(def.x) : -1;
       const root = new THREE.Group(), holder = new THREE.Group(), model = cloneSkinned(fbx);
       holder.scale.setScalar(def.scale || 1); holder.rotation.y = FRONT_FLIP;
       model.scale.multiplyScalar(s); model.position.set(-ctr.x * s, offY, -ctr.z * s);
@@ -115,10 +128,11 @@ export function createNPCs({ colliders, rand }) {
 
       const mixer = new THREE.AnimationMixer(model), idle = mixer.clipAction(idleClip), walk = mixer.clipAction(walkClip);
       idle.play(); idle.time = rand() * idleClip.duration; idle.timeScale = 0.9 + rand() * 0.2; walk.timeScale = 1.0; walk.play(); walk.weight = 0; walk.enabled = true;
-      const col = { x: def.x, z: def.z, r: 0.45 * (def.scale || 1) + 0.05 }; colliders.push(col);
+      const col = { x: def.x, z: def.z, r: 0.45 * (def.scale || 1) + 0.05 }; (inDusun ? meadowColliders : sIdx >= 0 ? sawahColliders[sIdx] : colliders).push(col);
       const yaw0 = Math.atan2(def.look.x - def.x, def.look.z - def.z);
-      const n = { def, root, mixer, idle, walk, w: 0, tag, bub, col, yaw: yaw0, yaw0, pos: { x: def.x, z: def.z }, pi: 0, dir: 1, wait: 1 + rand() * 3, walking: false, line: 0, lineT: 0, near: false, talking: false, talkT: 0 };
-      root.rotation.y = yaw0; group.add(root); npcs.push(n);
+      const meshes = []; model.traverse(o => { if (o.isMesh) meshes.push(o); });
+      const n = { def, root, mixer, idle, walk, meshes, w: 0, tag, bub, col, yaw: yaw0, yaw0, pos: { x: def.x, z: def.z }, pi: 0, dir: 1, wait: 1 + rand() * 3, walking: false, line: 0, lineT: 0, near: false, talking: false, talkT: 0 };
+      root.rotation.y = yaw0; (inDusun ? meadowGroup : sIdx >= 0 ? sawahGroups[sIdx] : group).add(root); npcs.push(n);
     }
   }, undefined, err => console.warn('Model NPC (npc/peasant.fbx) gagal dimuat', err));
 
@@ -160,7 +174,7 @@ export function createNPCs({ colliders, rand }) {
 
   // ---- Warga Kota Arunika: karakter manusia dari npc/Humans_Master.fbx & npc/All_together.fbx (data: city-npc-layout.js) ----
   // Dimuat malas: baru mulai saat pemain sudah dekat ke kota (file besar), supaya awal permainan tetap ringan.
-  let cityLoading = false;
+  let cityLoading = false, cityStartT = 0;
   const startCity = () => {
     cityLoading = true;
     loadCityHumans(CITY_NPC_FILES, CITY_NPCS, (def, b) => {
@@ -168,22 +182,59 @@ export function createNPCs({ colliders, rand }) {
       const tag = makeSprite(512, 128, 2.2, 0.55); drawTag(tag, def.name, def.role); tag.spr.position.y = b.headY + 0.2; tag.spr.visible = false; root.add(tag.spr);
       const bub = makeSprite(640, 300, 3.4, 3.4 * 300 / 640); bub.spr.position.y = b.headY + 0.3; bub.spr.visible = false; root.add(bub.spr);
       b.idle.play(); b.idle.time = rand() * b.idle.getClip().duration; b.idle.timeScale = 0.9 + rand() * 0.2; b.walk.timeScale = 1.0; b.walk.play(); b.walk.weight = 0; b.walk.enabled = true;
-      const col = { x: def.x, z: def.z, r: 0.5 }; colliders.push(col);
+      const col = { x: def.x, z: def.z, r: 0.5 }; cityColliders.push(col);
       const yaw0 = Math.atan2(def.look.x - def.x, def.look.z - def.z);
-      npcs.push({ def, root, mixer: b.mixer, idle: b.idle, walk: b.walk, greet: b.greet, greetDur: b.greetDur, gw: 0, greetT: 0, w: 0, tag, bub, col, yaw: yaw0, yaw0, pos: { x: def.x, z: def.z }, pi: 0, dir: 1, wait: 1 + rand() * 3, walking: false, line: 0, lineT: 0, near: false, talking: false, talkT: 0 });
-      root.rotation.y = yaw0; root.visible = false; group.add(root);
+      npcs.push({ def, root, mixer: b.mixer, idle: b.idle, walk: b.walk, meshes: b.meshes, greet: b.greet, greetDur: b.greetDur, gw: 0, greetT: 0, w: 0, tag, bub, col, yaw: yaw0, yaw0, pos: { x: def.x, z: def.z }, pi: 0, dir: 1, wait: 1 + rand() * 3, walking: false, line: 0, lineT: 0, near: false, talking: false, talkT: 0 });
+      root.rotation.y = yaw0; root.visible = false; cityGroup.add(root);
+      if (prewarm) prewarm(root);   // kompilasi shader kulit/bayangan SEKARANG (saat NPC masih tersembunyi), bukan saat pertama kali terlihat
     });
   };
 
+  // ---- Penghuni Istana Arunika (Ratu & Putri): model VRM (data: palace-npc-layout.js) ----
+  // Dimuat malas (±40 MB): baru mulai ketika pemain sudah dekat ke gerbang istana, jadi sudah siap saat pemain masuk.
+  let palaceLoading = false;
+  const startPalace = () => {
+    palaceLoading = true;
+    loadPalaceNpcs(PALACE_NPCS, (def, b) => {
+      const root = new THREE.Group(); root.add(b.holder); root.position.set(def.x, def.y || 0, def.z);
+      const tag = makeSprite(512, 128, 2.2, 0.55); drawTag(tag, def.name, def.role); tag.spr.position.y = b.headY + 0.2; tag.spr.visible = false; root.add(tag.spr);
+      const bub = makeSprite(640, 300, 3.4, 3.4 * 300 / 640); bub.spr.position.y = b.headY + 0.3; bub.spr.visible = false; root.add(bub.spr);
+      const col = { x: def.x, z: def.z, r: 0.42 };
+      if (palace) palace.addCircle(col, def.y > 3 ? 2 : 1);   // tabrakan khusus lantai istana (bukan daftar dunia, supaya hanya berlaku di lantainya)
+      const yaw0 = Math.atan2(def.look.x - def.x, def.look.z - def.z);
+      npcs.push({ def, root, mixer: b.mixer, idle: { weight: 1 }, walk: { weight: 0 }, onTalk: b.onTalk, w: 0, tag, bub, col, yaw: yaw0, yaw0, pos: { x: def.x, z: def.z }, pi: 0, dir: 1, wait: 1, walking: false, line: 0, lineT: 0, near: false, talking: false, talkT: 0 });
+      root.rotation.y = yaw0; root.visible = false; cityGroup.add(root);
+    });
+  };
+
+  // ---- LOD NPC (OPTIMASI) ----
+  // Mesh berkulit di sini frustumCulled = false (supaya animasi tidak terpotong), artinya SELALU digambar — termasuk di luar layar
+  // dan di pass bayangan, padahal kamera bayangan hanya ±34 m dari pemain. Jadi dikendalikan manual:
+  //   - di luar kerucut pandang kamera  -> disembunyikan & animasinya dilewati (radius cadangan 4.5 m supaya bayangannya tak hilang mendadak)
+  //   - lebih jauh dari 36 m            -> tidak ikut menggambar bayangan
+  //   - animasi diperbarui lebih jarang makin jauh (tiap frame / 2 frame / 4 frame), dt-nya diakumulasi supaya gerak tetap mulus
+  let frameNo = 0;
+  const frustum = new THREE.Frustum(), camMat = new THREE.Matrix4(), sph = new THREE.Sphere(new THREE.Vector3(), 4.5);
+  const SHADOW_R = 36;
+
   return {
-    group,
-    update(dt, t, pp) {
-      if (!cityLoading && CITY.open && Math.hypot(pp.x - CITY.x, pp.z - CITY.z) < CITY.radius + 130) startCity();
+    group, cityGroup, meadowGroup, sawahGroups,
+    update(dt, t, pp, cam = null) {
+      frameNo++;
+      if (cam) { camMat.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); frustum.setFromProjectionMatrix(camMat); }
+      // model besar (FBX warga kota ±24 MB, VRM istana ±40 MB) dimuat bertahap & berurutan, baru SESUDAH chunk kota selesai dibangun:
+      // memuat + mem-parse dua file besar dalam waktu bersamaan = lonjakan frame
+      if (!cityLoading && CITY.open && cityReady() && Math.hypot(pp.x - CITY.x, pp.z - CITY.z) < CITY.radius + 130) { startCity(); cityStartT = t; }
+      if (!palaceLoading && CITY.open && cityLoading && t - cityStartT > 5 && (Math.hypot(pp.x - PALACE.door.x, pp.z - PALACE.door.z) < 70 || Math.hypot(pp.x - PALACE.x, pp.z - PALACE.z) < 60)) startPalace();
       let best = null; // NPC terdekat dalam jangkauan bicara
-      for (const n of npcs) {
+      for (let ni = 0; ni < npcs.length; ni++) {
+        const n = npcs[ni]; n.idx = ni;
         const d = n.def, dx = pp.x - n.pos.x, dz = pp.z - n.pos.z, dist = Math.hypot(dx, dz);
-        if (dist > 70) { n.root.visible = false; if (n.talking) closeTalk(n); continue; } n.root.visible = true;
-        const near = dist < (d.talkR || TALK_R);
+        if (dist > 70) { n.root.visible = false; if (n.talking) closeTalk(n); continue; }
+        const seen = !cam || (sph.center.set(n.pos.x, (d.y || 0) + 1, n.pos.z), frustum.intersectsSphere(sph));
+        n.root.visible = seen || n.talking;
+        const sameFloor = Math.abs(pp.y - (d.y || 0)) < 2.5;   // di istana: NPC lantai 2 tidak bisa diajak bicara dari lantai 1 (jarak mendatar saja menipu)
+        const near = sameFloor && dist < (d.talkR || TALK_R);
         let want = n.yaw0, move = false;
         if (near) want = Math.atan2(dx, dz); // menoleh ke pemain
         else if (d.patrol) {
@@ -197,20 +248,27 @@ export function createNPCs({ colliders, rand }) {
           if (!move && !near && n.wait > 0) want = n.yaw;
         }
         n.yaw += wrapAng(want - n.yaw) * (1 - Math.exp(-dt * (move ? 7 : 5)));
-        n.root.position.set(n.pos.x, 0, n.pos.z); n.root.rotation.y = n.yaw; n.col.x = n.pos.x; n.col.z = n.pos.z;
+        n.root.position.set(n.pos.x, d.y || 0, n.pos.z); n.root.rotation.y = n.yaw; n.col.x = n.pos.x; n.col.z = n.pos.z;
         // animasi: idle <-> walk (cross-fade halus)
         n.w += ((move ? 1 : 0) - n.w) * (1 - Math.exp(-dt * 8));
         let gw = 0; // lambaian saat diajak bicara (hanya warga kota): bobotnya naik-turun halus, sisanya dibagi idle/walk
         if (n.greet) { n.greetT -= dt; n.gw += ((n.greetT > 0.35 ? 1 : 0) - n.gw) * (1 - Math.exp(-dt * 9)); gw = n.gw; n.greet.weight = gw; }
         n.walk.weight = n.w * (1 - gw); n.idle.weight = (1 - n.w) * (1 - gw);
-        n.mixer.update(dt);
+        // bayangan hanya untuk NPC yang dekat; animasi: dilewati kalau tak terlihat, dijarangkan kalau jauh
+        const wantShadow = dist < SHADOW_R;
+        if (n.meshes && n.shadowOn !== wantShadow) { n.shadowOn = wantShadow; for (const m of n.meshes) m.castShadow = wantShadow; }
+        n.acc = (n.acc || 0) + dt;
+        if (n.root.visible) {
+          const step = dist < 22 ? 1 : dist < 45 ? 2 : 4;
+          if (step === 1 || ((frameNo + (n.idx || 0)) % step) === 0 || n.talking) { n.mixer.update(Math.min(n.acc, 0.25)); n.acc = 0; }
+        } else if (n.acc > 1) n.acc = 1;   // tak terlihat: animasi berhenti dulu, jangan menumpuk waktu
         // label nama (tetap muncul saat dekat) & gelembung dialog (HANYA setelah tombol Mengobrol ditekan)
         n.near = near;
         if (n.talking) { // tutup obrolan bila pemain menjauh atau sudah lama tidak ditekan
           if (!near || (n.talkT += dt) > TALK_TIMEOUT) closeTalk(n);
         }
         n.bub.spr.visible = n.talking;
-        n.tag.spr.visible = dist < (d.tagR || TAG_R) && !n.talking;
+        n.tag.spr.visible = sameFloor && dist < (d.tagR || TAG_R) && !n.talking;
         if (near && (!best || dist < best.dist)) best = { n, dist };
       }
       target = best ? best.n : null;
@@ -219,7 +277,7 @@ export function createNPCs({ colliders, rand }) {
     // dipanggil tombol "Mengobrol": buka dialog NPC terdekat, tekan lagi untuk kalimat berikutnya
     talk() {
       const n = target; if (!n) return false;
-      if (!n.talking) { n.talking = true; n.line = 0; if (n.greet) { n.greet.reset().play(); n.greet.weight = 0; n.greetT = n.greetDur; } }
+      if (!n.talking) { n.talking = true; n.line = 0; if (n.greet) { n.greet.reset().play(); n.greet.weight = 0; n.greetT = n.greetDur; } if (n.onTalk) n.onTalk(); }
       else n.line = (n.line + 1) % n.def.lines.length;
       n.talkT = 0; drawBubble(n.bub, n.def.name, n.def.lines[n.line]); return true;
     },

@@ -1,0 +1,339 @@
+diff -ruN a/game.js b/game.js
+--- a/game.js	2026-11-02 22:11:25.356616356 +0000
++++ b/game.js	2026-11-02 22:11:25.360056875 +0000
+@@ -1831,7 +1831,7 @@
+     if (inKekaisaran && dn !== kekDistrict && dn >= 0) {
+       kekDistrict = dn;
+       if (dn === 0) say('👑 Halaman Istana\nTapak Istana Kekaisaran (belum dibangun)');
+-      else { const d = DISTRICTS[dn - 1]; say((d.n === 1 ? '⚔️ ' : '🚧 ') + d.name + ' — ' + d.sub + (d.built ? '' : '\nSegera dibangun')); }
++      else { const d = DISTRICTS[dn - 1]; say((d.n === 1 ? '⚔️ ' : d.n === 2 ? '🛍️ ' : '🚧 ') + d.name + ' — ' + d.sub + (d.built ? '' : '\nSegera dibangun')); }
+     }
+   }
+   if (CITY.open && !churchBusy) { // pintu katedral (luar) & pintu keluar (dalam)
+diff -ruN a/index.html b/index.html
+--- a/index.html	2026-11-02 22:11:25.356565751 +0000
++++ b/index.html	2026-11-02 22:11:25.359921277 +0000
+@@ -20,7 +20,7 @@
+   <div id="obj" hidden><i id="objA">▲</i><span id="objD"></span><small>🕳️ Lubang Dungeon</small></div>
+   <div id="boss" hidden><span>Malzareth, Penyihir Kegelapan</span><div class="bar"><i id="bossbar"></i></div></div>
+   <div id="pl"><b>Louis</b><div class="bar hp"><i id="hpbar"></i></div></div>
+-  <div id="help">WASD gerak · Spasi / Klik serang · Shift berguling (lari di dunia luar) · E mengobrol dengan warga · 1 2 3 4 skill · C ganti kamera · Mouse putar & naik-turun kamera 360° · Roll mouse zoom · F layar penuh · Esc pengaturan · 🌲 Di hutan ada slime & goblin liar: lawan dengan serangan & skill · 🏰 Masuk istana lewat gerbang di ujung jalan utama kota · 🌾 Gerbang Timur kota menuju Padang Rumput, lalu terus ke timur sampai Ladang Sawah dan Kota Kekaisaran (baru Distrik 1)</div>
++  <div id="help">WASD gerak · Spasi / Klik serang · Shift berguling (lari di dunia luar) · E mengobrol dengan warga · 1 2 3 4 skill · C ganti kamera · Mouse putar & naik-turun kamera 360° · Roll mouse zoom · F layar penuh · Esc pengaturan · 🌲 Di hutan ada slime & goblin liar: lawan dengan serangan & skill · 🏰 Masuk istana lewat gerbang di ujung jalan utama kota · 🌾 Gerbang Timur kota menuju Padang Rumput, lalu terus ke timur sampai Ladang Sawah dan Kota Kekaisaran (baru Distrik 1 & 2)</div>
+   <div id="msg">Memuat karakter...</div>
+   <button id="again" hidden>↻ Main Lagi</button>
+   <button id="exit" hidden>🌿 Keluar Dungeon</button>
+diff -ruN a/kekaisaran-layout.js b/kekaisaran-layout.js
+--- a/kekaisaran-layout.js	2026-11-02 22:11:25.356539094 +0000
++++ b/kekaisaran-layout.js	2026-11-02 22:11:25.359886490 +0000
+@@ -2,7 +2,7 @@
+ //  KOTA KEKAISARAN — data tata letak (murni angka, tanpa THREE)
+ //  Kota berbentuk SEGI LIMA beraturan di ujung Ladang Sawah Gemah Ripah, dikelilingi tembok dengan 5 gerbang, 5 distrik,
+ //  jalan lingkar, dan istana di tengahnya (tapak istana disiapkan, bangunannya BELUM dibuat).
+-//  Tahap sekarang: tembok + 5 gerbang + jalan + Distrik 1 (Military Quarter) lengkap TANPA NPC. Distrik 2-5 baru berupa lahan kosong bertanda.
++//  Tahap sekarang: tembok + 5 gerbang + jalan + Distrik 1 (Military Quarter) + Distrik 2 (Merchant Quarter) lengkap TANPA NPC. Distrik 3-5 baru berupa lahan kosong bertanda.
+ //  Dipakai oleh kekaisaran.js (isi kota), world.js (chunk), forest-layout.js (batas dunia) dan game.js (pesan masuk).
+ //
+ //  KERANGKA KOORDINAT KOTA (lokal): x = ke depan (searah jalan ladang, "utara" di gambar denah), z = ke kanan (sisi kanan saat menghadap timur = "timur" di gambar).
+@@ -33,7 +33,7 @@
+ 
+ export const DISTRICTS = [
+   { n: 1, id: 'militer',    name: 'Distrik 1', sub: 'Military Quarter',       built: true  },
+-  { n: 2, id: 'pedagang',   name: 'Distrik 2', sub: 'Merchant Quarter',       built: false },
++  { n: 2, id: 'pedagang',   name: 'Distrik 2', sub: 'Merchant Quarter',       built: true  },
+   { n: 3, id: 'bangsawan',  name: 'Distrik 3', sub: 'Noble Quarter',          built: false },
+   { n: 4, id: 'akademi',    name: 'Distrik 4', sub: 'Academy Quarter',        built: false },
+   { n: 5, id: 'administrasi', name: 'Distrik 5', sub: 'Administration Quarter', built: false },
+@@ -151,3 +151,57 @@
+   if (x < D1.avenue.x1 + pad && Math.abs(z) < D1.avenue.w / 2 + 3.5 + pad) return true;   // jalan utama + saluran
+   return false;
+ }
++
++// ============================================================
++//  DISTRIK 2 — MERCHANT QUARTER (kerangka lokal)
++//  Wilayah: baji antara jalan radial Gerbang Timur Laut (φ = 36°) dan Gerbang Timur (φ = 108°), dari jalan lingkar sampai tembok.
++//  Koordinat distrik (u, v): u = menjauhi istana sepanjang sumbu 72° (puncak segi lima), v = ke samping (+v = searah φ yang lebih besar).
++// ============================================================
++const A2 = 72 * D2R, E2 = { x: Math.cos(A2), z: Math.sin(A2) }, N2 = { x: -Math.sin(A2), z: Math.cos(A2) };
++export const d2p = (u, v) => ({ x: u * E2.x + v * N2.x, z: u * E2.z + v * N2.z });                       // (u,v) distrik -> lokal kota
++export const d2Face = (du, dv) => { const x = du * E2.x + dv * N2.x, z = du * E2.z + dv * N2.z; return Math.atan2(z, x); };   // arah (du,dv) -> sudut face lokal kota
++// titik (x,z) lokal ada di wilayah dalam Distrik 2 dengan jarak aman `m` dari jalan radial, jalan lingkar, dan tembok?
++export function inD2(x, z, m = 0) {
++  if (!insidePoly(x, z, WALL.t / 2 + 0.4 + m)) return false;
++  if (Math.hypot(x, z) < RING.r + RING.w / 2 + m) return false;
++  if (radialSigned(x, z, 36) < ROAD_W / 2 + m) return false;         // sisi SE jalan radial +36°
++  if (radialSigned(x, z, 108) > -(ROAD_W / 2 + m)) return false;     // sisi NE jalan radial +108°
++  return true;
++}
++const PL = { u: 112, r: 19 };    // alun-alun pasar bundar
++export const D2 = {
++  avenue: { w: 11, u0: RING.r, u1: 152 },                                        // jalan utama: jalan lingkar -> alun-alun -> Balai Serikat
++  plaza:  { u: PL.u, v: 0, r: PL.r },                                            // alun-alun pasar (lantai batu berwarna), air mancur di tengah
++  fountain: { u: PL.u, v: 0, r: 3.4 },
++  stalls: { n: 12, r: 13.6, skip: [0, 6] },                                      // kios pasar beratap kain bergaris, melingkar; indeks 0 & 6 = pintu jalan utama
++  // bangunan: (u, v) pusat, w = lebar fasad, d = kedalaman, to = [du, dv] arah depan (menghadap)
++  buildings: [
++    { id: 'balai',    kind: 'guild',     name: 'Balai Serikat Pedagang', u: 153, v: 0,   w: 24, d: 12, to: [-1, 0] },
++    { id: 'bank',     kind: 'bank',      name: 'Bank Kekaisaran',        u: 133, v: -41, w: 15, d: 10, to: [-0.5, 1] },
++    { id: 'timbang',  kind: 'scale',     name: 'Rumah Timbang',          u: 133, v: 41,  w: 14, d: 9,  to: [-0.5, -1] },
++    { id: 'penginapan', kind: 'inn',     name: 'Penginapan Karavan',     u: 95,  v: -48, w: 16, d: 10, to: [0, 1] },
++    { id: 'kedai',    kind: 'tavern',    name: 'Kedai Gelas Emas',       u: 95,  v: 48,  w: 15, d: 9,  to: [0, -1] },
++    { id: 'gudang-1', kind: 'warehouse', name: 'Gudang Dagang I',        u: 116, v: -56, w: 20, d: 11, to: [0, 1] },
++    { id: 'gudang-2', kind: 'warehouse', name: 'Gudang Dagang II',       u: 116, v: 56,  w: 20, d: 11, to: [0, -1] },
++  ],
++  shopRing: { r: 31, angles: [-145, -110, -70, -38, 38, 70, 110, 145], w: 11, d: 9 },   // toko berderet mengelilingi alun-alun, menghadap pusat
++  shopNames: ['Toko Kain', 'Toko Rempah', 'Apotek', 'Toko Keramik', 'Toko Roti', 'Toko Perhiasan', 'Toko Buku', 'Toko Sepatu'],
++};
++D2.shops = D2.shopRing.angles.map((deg, i) => {
++  const a = deg * D2R, u = PL.u + D2.shopRing.r * Math.cos(a), v = D2.shopRing.r * Math.sin(a);
++  return { id: 'toko-' + (i + 1), kind: 'shop', name: D2.shopNames[i], u, v, w: D2.shopRing.w, d: D2.shopRing.d, to: [PL.u - u, -v] };
++});
++for (const b of [...D2.buildings, ...D2.shops]) { const p = d2p(b.u, b.v); b.x = p.x; b.z = p.z; b.face = d2Face(b.to[0], b.to[1]); }
++export const D2_FOOTPRINTS = [...D2.buildings, ...D2.shops].map(b => ({ x: b.x, z: b.z, w: b.w, d: b.d, face: b.face }));
++// titik lokal (x,z) berada di dalam / dekat jejak bangunan, alun-alun, atau jalan utama Distrik 2 (pad = jarak aman)
++export function d2Blocked(x, z, pad = 0) {
++  for (const f of D2_FOOTPRINTS) {
++    const fx = Math.cos(f.face), fz = Math.sin(f.face), dx = x - f.x, dz = z - f.z;
++    const along = dx * -fz + dz * fx, front = dx * fx + dz * fz;
++    if (Math.abs(along) < f.w / 2 + pad && Math.abs(front) < f.d / 2 + pad) return true;
++  }
++  const pc = d2p(PL.u, 0); if (Math.hypot(x - pc.x, z - pc.z) < PL.r + 1.5 + pad) return true;
++  // jalan utama (u0 .. u1) selebar avenue + tepi
++  const dx = x * E2.x + z * E2.z, dv = x * N2.x + z * N2.z; if (dx > D2.avenue.u0 - 2 && dx < D2.avenue.u1 + 4 && Math.abs(dv) < D2.avenue.w / 2 + 2 + pad) return true;
++  return false;
++}
+diff -ruN a/kekaisaran.js b/kekaisaran.js
+--- a/kekaisaran.js	2026-11-02 22:11:25.356291277 +0000
++++ b/kekaisaran.js	2026-11-02 22:11:25.358914100 +0000
+@@ -1,12 +1,13 @@
+ import * as THREE from 'three';
+-import { APOTHEM, SIDE, WALL, RING, PLAZA_R, PALACE_SITE, ROAD_W, AVENUE_W, GATES, DISTRICTS, VERTS, EMPIRE_C, EMPIRE_YAW, GATE_OFFSET, toWorld, D1, d1Blocked, inD1, insidePoly } from './kekaisaran-layout.js';
++import { APOTHEM, SIDE, WALL, RING, PLAZA_R, PALACE_SITE, ROAD_W, AVENUE_W, GATES, DISTRICTS, VERTS, EMPIRE_C, EMPIRE_YAW, GATE_OFFSET, toWorld, D1, d1Blocked, inD1, insidePoly, D2, d2p, d2Face, d2Blocked, inD2 } from './kekaisaran-layout.js';
+ 
+ // ============================================================
+ //  Membangun Kota Kekaisaran (satu chunk, dipanggil dari world.js).
+ //  Isi: tembok segi lima + 5 menara sudut + 5 gerbang (Gerbang Utama terbuka, 4 lainnya tertutup), jalan lingkar & 5 jalan radial,
+ //  jalan raya Gerbang Utama (saluran air + jembatan), halaman & tapak istana (BELUM ada istananya), dan DISTRIK 1 — Military Quarter
+ //  (lapangan apel, markas komando, 4 barak, gudang senjata, kandang, pandai besi, rumah perwira, 2 lapangan latihan, pagar kayu, saluran air).
+-//  Distrik 2-5: lahan kosong bertanda patok + papan "segera dibangun". TIDAK ADA NPC.
++//  DISTRIK 2 — Merchant Quarter (alun-alun pasar bundar dengan kios berwarna & air mancur, 8 toko, penginapan, kedai, bank, rumah timbang, gudang dagang, Balai Serikat Pedagang).
++//  Distrik 3-5: lahan kosong bertanda patok + papan "segera dibangun". TIDAK ADA NPC.
+ //
+ //  Semua mesh dibuat di kerangka lokal kota (grup `city`): sumbu-x = ke depan (searah jalan ladang), sumbu-z = ke kanan, pusat istana = (0,0).
+ //  Collider (lingkaran) dimasukkan ke koordinat DUNIA lewat toWorld().
+@@ -452,13 +453,214 @@
+     if (trees.some(t => Math.hypot(t.x - x, t.z - z) < 9)) continue;
+     addTree(x, z, Rn(0.55, 0.8)); n++;
+   }
+-  // ---------- Distrik 2-5: lahan kosong bertanda ----------
++  // ======================================================================
++  //  DISTRIK 2 — MERCHANT QUARTER (alun-alun pasar bundar, toko, penginapan, kedai, bank, rumah timbang, balai serikat, gudang dagang)
++  //  Koordinat distrik (u, v) -> lokal kota lewat d2p(); arah depan bangunan sudah dihitung di kekaisaran-layout.js (b.x, b.z, b.face).
++  // ======================================================================
++  const AWN_COL = ['#c73a2a', '#2f6fb0', '#e0a82e', '#3a8a4a', '#8a3a8f', '#e07a2a'];
++  const stripeTex = c => ctex(64, (x, s) => { x.fillStyle = '#f3ead0'; x.fillRect(0, 0, s, s); x.fillStyle = c; x.fillRect(0, 0, s / 2, s); });
++  const awnMats = AWN_COL.map(c => tm(stripeTex(c), 0xffffff, { side: THREE.DoubleSide }));
++  function scales(x, cx, cy, L, c) {   // timbangan dua piring
++    x.save(); x.translate(cx, cy); x.strokeStyle = c; x.fillStyle = c; x.lineCap = 'round'; x.lineWidth = L * 0.1;
++    x.beginPath(); x.moveTo(0, -L * 0.85); x.lineTo(0, L * 0.8); x.stroke(); x.beginPath(); x.moveTo(-L * 0.55, L * 0.8); x.lineTo(L * 0.55, L * 0.8); x.stroke();
++    x.beginPath(); x.moveTo(-L * 0.8, -L * 0.5); x.lineTo(L * 0.8, -L * 0.5); x.stroke(); x.lineWidth = L * 0.04;
++    for (const sg of [-1, 1]) { x.beginPath(); x.moveTo(sg * L * 0.8, -L * 0.5); x.lineTo(sg * L * 1.0, L * 0.1); x.moveTo(sg * L * 0.8, -L * 0.5); x.lineTo(sg * L * 0.6, L * 0.1); x.stroke(); x.beginPath(); x.arc(sg * L * 0.8, L * 0.1, L * 0.2, 0, Math.PI); x.fill(); }
++    x.restore();
++  }
++  const mbannerTex = ctex(128, (x, w, h) => {
++    x.fillStyle = '#1f5a3a'; x.fillRect(0, 0, w, h); x.strokeStyle = '#d9b24a'; x.lineWidth = 8; x.strokeRect(6, 6, w - 12, h - 12);
++    scales(x, w / 2, h * 0.4, 30, '#e7c862');
++    x.fillStyle = '#d9b24a'; x.beginPath(); x.moveTo(8, h - 8); x.lineTo(w / 2, h - 52); x.lineTo(w - 8, h - 8); x.lineTo(w - 8, h - 24); x.lineTo(w / 2, h - 70); x.lineTo(8, h - 24); x.closePath(); x.fill();
++  }, 128, 256);
++  const mbannerMat = new THREE.MeshStandardMaterial({ map: mbannerTex, roughness: 1, side: THREE.DoubleSide });
++  const mbanner = (g, x, y, z, w, h, ry = 0) => { const b = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mbannerMat); b.position.set(x, y, z); b.rotation.y = ry; b.castShadow = true; g.add(b); return b; };
++  const emblemM = tm(ctex(256, (x, s) => { x.fillStyle = '#1f5a3a'; x.beginPath(); x.arc(s / 2, s / 2, s / 2, 0, 7); x.fill(); x.strokeStyle = '#d9b24a'; x.lineWidth = 10; x.beginPath(); x.arc(s / 2, s / 2, s / 2 - 12, 0, 7); x.stroke(); scales(x, s / 2, s / 2, 78, '#e7c862'); }), 0xffffff);
++  const WHEEL = ['#d96a5a', '#e69a4a', '#e8cd5a', '#9cc65a', '#5aa86a', '#4aa8a0', '#5a8ed0', '#6a6ad0', '#9a6ac8', '#c86aa8', '#d8798a', '#e0b89a'];
++  const wheelTex = ctex(512, (x, s) => {
++    const c = s / 2; x.fillStyle = '#a79f88'; x.fillRect(0, 0, s, s);
++    for (let i = 0; i < 12; i++) { const a0 = i * Math.PI / 6, a1 = (i + 1) * Math.PI / 6; x.fillStyle = WHEEL[i]; x.beginPath(); x.moveTo(c, c); x.arc(c, c, c - 14, a0, a1); x.closePath(); x.fill();
++      x.fillStyle = 'rgba(255,255,255,0.28)'; x.beginPath(); x.moveTo(c, c); x.arc(c, c, c * 0.62, a0, a1); x.closePath(); x.fill(); }
++    x.strokeStyle = '#f1e8cf'; x.lineWidth = 6; for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; x.beginPath(); x.moveTo(c + Math.cos(a) * c * 0.24, c + Math.sin(a) * c * 0.24); x.lineTo(c + Math.cos(a) * (c - 14), c + Math.sin(a) * (c - 14)); x.stroke(); }
++    for (const r of [c - 14, c * 0.62, c * 0.24]) { x.beginPath(); x.arc(c, c, r, 0, 7); x.stroke(); }
++    x.fillStyle = '#d8d0b8'; x.beginPath(); x.arc(c, c, c * 0.24, 0, 7); x.fill(); noise(x, s, 1200, 120, 230, 0.12);
++  });
++  wheelTex.wrapS = wheelTex.wrapT = THREE.ClampToEdgeWrapping;
++  const D2c = d2p(D2.plaza.u, 0), PLR = D2.plaza.r;
++  const dpt = (u, v) => d2p(u, v);
++  const goodsCol = [0xd0452f, 0xe8b23a, 0x6fae48, 0xd77b2e, 0x8a4fa0, 0xe9e2c8];
++  const crate = (g, x, y, z, s = 0.8, ry = 0) => { const k = mesh(box(s, s * 0.8, s), M.wood, x, y + s * 0.4, z, g); k.rotation.y = ry; mesh(box(s * 0.92, 0.06, s * 0.92), M.woodDark, x, y + s * 0.82, z, g, false).rotation.y = ry; return k; };
++  const sack = (g, x, z, c = 0xcdbb8e) => { const k = mesh(new THREE.SphereGeometry(0.42, 8, 6), std(c), x, 0.32, z, g); k.scale.set(1, 0.85, 0.8); mesh(new THREE.SphereGeometry(0.16, 6, 4), std(c), x, 0.7, z, g, false); return k; };
++  function wagon(x, z, ry, cargo = 'crates') {   // gerobak barang beroda 4 (koordinat lokal kota)
++    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; city.add(g);
++    mesh(box(3.6, 0.2, 1.7), M.wood, 0, 0.8, 0, g); for (const sd of [-1, 1]) mesh(box(3.6, 0.55, 0.12), M.woodDark, 0, 1.15, sd * 0.82, g, false); mesh(box(0.12, 0.55, 1.7), M.woodDark, -1.75, 1.15, 0, g, false);
++    for (const sx of [-1.1, 1.1]) for (const sd of [-1, 1]) { const w = mesh(cyl(0.55, 0.55, 0.14, 12), M.woodDark, sx, 0.55, sd * 0.98, g, false); w.rotation.x = Math.PI / 2; mesh(cyl(0.14, 0.14, 0.2, 6), M.iron, sx, 0.55, sd * 0.98, g, false).rotation.x = Math.PI / 2; }
++    mesh(box(2.4, 0.1, 0.1), M.timber, 2.8, 0.7, 0, g, false);
++    if (cargo === 'crates') { crate(g, -0.9, 0.9, 0.3, 0.9); crate(g, 0.1, 0.9, -0.3, 0.9, 0.2); crate(g, 0.9, 0.9, 0.3, 0.8, -0.1); crate(g, -0.3, 1.7, 0, 0.8, 0.1); }
++    else { for (let i = 0; i < 6; i++) { const k = mesh(new THREE.SphereGeometry(0.45, 8, 6), std(i % 2 ? 0xcdbb8e : 0xbfa974), -1.1 + (i % 3) * 1.0, 1.35 + (i > 2 ? 0.55 : 0), (i % 2) * 0.35 - 0.2, g); k.scale.set(1, 0.85, 0.85); } }
++    col(x, z, 1.9);
++  }
++  yield;
++
++  // ---------- lantai: jalan utama, alun-alun pasar berwarna, jalur ke bangunan ----------
++  { const a = dpt(D2.avenue.u0 - 2, 0), b = dpt(D2.avenue.u1, 0); decalStrip(a.x, a.z, b.x, b.z, D2.avenue.w, M.cobble, 4, 0.33); }
++  decalDisc(D2c.x, D2c.z, PLR + 1.4, M.cobble, 5, 0.33, 72);                                    // bingkai batu kali
++  (() => { const g = new THREE.CircleGeometry(PLR, 72).rotateX(-Math.PI / 2); const p = g.attributes.position, uv = new Float32Array(p.count * 2);
++    for (let i = 0; i < p.count; i++) { uv[i * 2] = p.getX(i) / (2 * PLR) + 0.5; uv[i * 2 + 1] = 0.5 - p.getZ(i) / (2 * PLR); }
++    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.translate(D2c.x, 0, D2c.z);
++    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: wheelTex, roughness: 1, polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -8 })); m.position.y = 0.02 + 8 * 0.004; m.receiveShadow = true; city.add(m); })();
++  { // jalur dari depan tiap bangunan (selain balai) ke tepi alun-alun
++    for (const b of [...D2.buildings.filter(q => q.id !== 'balai'), ...D2.shops]) {
++      const fx = Math.cos(b.face), fz = Math.sin(b.face), sx = b.x + fx * (b.d / 2 + 0.5), sz = b.z + fz * (b.d / 2 + 0.5), dx = D2c.x - sx, dz = D2c.z - sz, L = Math.hypot(dx, dz), t = Math.max(0, L - (PLR + 0.5)) / L;
++      if (L > PLR + 1.5) decalStrip(sx, sz, sx + dx * t, sz + dz * t, 3, M.cobble, 5, 0.33);
++    }
++  }
++  yield;
++
++  // posisi dunia-kota dari koordinat lokal bangunan (lx = sepanjang fasad, lz = searah depan)
++  const bp = (b, lx, lz) => ({ x: b.x + Math.sin(b.face) * lx + Math.cos(b.face) * lz, z: b.z - Math.cos(b.face) * lx + Math.sin(b.face) * lz });
++  const bcol = (b, lx, lz, r) => { const p = bp(b, lx, lz); col(p.x, p.z, r); };
++  yield;
++
++  // ---------- gapura pintu masuk Distrik 2 (tiang kayu + papan nama + panji) ----------
++  { const u = RING.r + RING.w / 2 + 3.5, c = dpt(u, 0), g = new THREE.Group(); g.position.set(c.x, 0, c.z); g.rotation.y = -72 * D2R; city.add(g);   // sumbu-x grup = menjauhi istana, sumbu-z grup = sisi v
++    for (const sd of [-1, 1]) { mesh(box(1.2, 0.5, 1.2), M.plinth, 0, 0.25, sd * 7.2, g); mesh(box(0.8, 6.4, 0.8), M.timber, 0, 3.7, sd * 7.2, g); mesh(box(1.0, 0.3, 1.0), M.gold, 0, 7.0, sd * 7.2, g, false); const q = dpt(u, sd * 7.2); col(q.x, q.z, 0.9); }
++    mesh(box(0.8, 0.8, 15.6), M.timber, 0, 6.6, 0, g); mesh(box(0.5, 0.3, 14.6), M.gold, 0, 7.15, 0, g, false);
++    plaque(g, 'MERCHANT QUARTER', 'Distrik 2 · Pasar', 0.46, 6.1, 0, 7.0, 1.7, Math.PI / 2); plaque(g, 'MERCHANT QUARTER', 'Distrik 2 · Pasar', -0.46, 6.1, 0, 7.0, 1.7, -Math.PI / 2);
++    for (const sd of [-1, 1]) { mbanner(g, 0, 3.6, sd * 5.6, 1.3, 3.0, Math.PI / 2); }
++  }
++
++  // ---------- air mancur pasar + bangku ----------
++  { const g = new THREE.Group(); g.position.set(D2c.x, 0, D2c.z); city.add(g);
++    mesh(cyl(3.6, 3.8, 0.9, 16), M.plinth, 0, 0.45, 0, g); mesh(new THREE.CircleGeometry(3.2, 24).rotateX(-Math.PI / 2), M.water, 0, 0.88, 0, g, false);
++    mesh(cyl(0.5, 0.7, 1.6, 10), M.plinth, 0, 1.7, 0, g); mesh(cyl(1.7, 0.6, 0.4, 12), M.plinth, 0, 2.6, 0, g); mesh(cyl(0.2, 0.3, 1.4, 8), M.plinth, 0, 3.5, 0, g); mesh(cyl(0.9, 0.3, 0.3, 10), M.plinth, 0, 4.3, 0, g);
++    mesh(new THREE.SphereGeometry(0.32, 8, 6), M.gold, 0, 4.7, 0, g, false);
++    for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; mesh(cyl(0.22, 0.22, 0.06, 10), M.gold, Math.cos(a) * 3.3, 0.96, Math.sin(a) * 3.3, g, false).rotation.z = 0; }
++    col(D2c.x, D2c.z, 4.1);
++    for (let k = 0; k < 4; k++) { const a = (45 + k * 90) * D2R, bx = D2c.x + Math.cos(a) * 7.4, bz = D2c.z + Math.sin(a) * 7.4, b = new THREE.Group(); b.position.set(bx, 0, bz); b.rotation.y = -a + Math.PI / 2; city.add(b);
++      mesh(box(2.4, 0.14, 0.6), M.wood, 0, 0.5, 0, b); mesh(box(2.4, 0.5, 0.1), M.wood, 0, 0.85, -0.3, b, false); for (const sd of [-1, 1]) mesh(box(0.14, 0.5, 0.5), M.plinth, sd * 1.0, 0.25, 0, b, false); col(bx, bz, 1.2); }
++  }
++  // ---------- kios pasar beratap kain bergaris (melingkar di alun-alun) ----------
++  for (let i = 0; i < D2.stalls.n; i++) {
++    if (D2.stalls.skip.includes(i)) continue;
++    const th = i * 2 * Math.PI / D2.stalls.n, p = dpt(D2.plaza.u + D2.stalls.r * Math.cos(th), D2.stalls.r * Math.sin(th)), face = d2Face(-Math.cos(th), -Math.sin(th)), g = place(p.x, p.z, face), kind = i % 3;
++    for (const sx of [-1, 1]) for (const sz of [-1, 1]) mesh(cyl(0.07, 0.08, 2.7, 6), M.timber, sx * 1.55, 1.35, sz * 1.15, g, false);
++    const aw = mesh(scaleUV(box(3.9, 0.1, 3.2), 4, 1), awnMats[i % awnMats.length], 0, 2.85, 0, g); aw.rotation.x = 0.14;
++    mesh(box(3.2, 0.9, 0.9), M.wood, 0, 0.45, 1.0, g); mesh(box(3.3, 0.08, 1.0), M.woodDark, 0, 0.94, 1.0, g, false);
++    for (let j = 0; j < 5; j++) {
++      const x = -1.2 + j * 0.6, z = 1.0 + (j % 2) * 0.1 - 0.05;
++      if (kind === 0) mesh(new THREE.SphereGeometry(0.17, 8, 6), std(goodsCol[(i + j) % goodsCol.length]), x, 1.14, z, g, false);          // buah
++      else if (kind === 1) { const r = mesh(cyl(0.16, 0.16, 0.7, 8), std(goodsCol[(i + j * 2) % goodsCol.length]), x, 1.2, z, g, false); r.rotation.z = Math.PI / 2; r.rotation.y = 0.3; }   // gulungan kain
++      else mesh(cyl(0.17, 0.12, 0.34, 8), std(j % 2 ? 0xb5683a : 0x9c5a32), x, 1.12, z, g, false);                                               // keramik
++    }
++    crate(g, -1.1, 0, -0.6, 0.8); crate(g, 1.1, 0, -0.5, 0.7, 0.3); barrel(g, 0, -0.7);
++    mesh(box(0.2, 0.28, 0.2), M.lantern, 0, 2.55, 1.3, g, false);
++    col(p.x, p.z, 2.0);
++  }
++  yield;
++
++  // ---------- bangunan Distrik 2 ----------
++  let shopIdx = 0;
++  for (const b of D2.shops) {
++    const g = place(b.x, b.z, b.face), w = b.w, d = b.d, H = 6.4, ci = shopIdx++ % awnMats.length;
++    const y0 = shell(g, w, d, H, 3.4, { wall: M.plaster, roof: M.roofRed });
++    door(g, d, y0, 1.8, 2.8);
++    const can = mesh(scaleUV(box(5.4, 0.1, 1.9), 5, 1), awnMats[ci], 0, y0 + 3.85, d / 2 + 0.95, g); can.rotation.x = 0.26;
++    plaque(g, b.name.toUpperCase(), null, 0, y0 + 5.3, d / 2 + 0.1, 4.4, 0.8);
++    for (const sx of [-1, 1]) mesh(new THREE.PlaneGeometry(0.95, 1.1), M.window, sx * (w / 2 - 1.3), y0 + H * 0.88, d / 2 + 0.07, g, false);
++    mesh(box(0.1, 0.1, 1.5), M.iron, w / 2 - 1.2, y0 + 4.6, d / 2 + 0.75, g, false); mesh(box(0.7, 0.7, 0.1), std(parseInt(AWN_COL[ci].slice(1), 16)), w / 2 - 1.2, y0 + 4.1, d / 2 + 1.45, g, false);
++    crate(g, -w / 2 + 1.6, 0, d / 2 + 1.3, 0.9); crate(g, -w / 2 + 2.6, 0, d / 2 + 1.2, 0.8, 0.2); barrel(g, w / 2 - 1.6, d / 2 + 1.1);
++    colRect(b);
++  }
++  for (const b of D2.buildings) {
++    const g = place(b.x, b.z, b.face), w = b.w, d = b.d;
++    if (b.kind === 'guild') {
++      const y0 = shell(g, w, d, 8.4, 5.2, { wall: M.hall, roof: M.roofBlue, ov: 1.2, chimney: false });
++      mesh(boxUV(6.4, 14, 4.6, 0.5), M.hall, 0, 7, d / 2 + 1.6, g); mesh(box(7.2, 0.6, 5.4), M.plinth, 0, 14.2, d / 2 + 1.6, g);
++      mesh(new THREE.ConeGeometry(5.0, 8, 4).rotateY(Math.PI / 4), M.roofBlue, 0, 18.5, d / 2 + 1.6, g); mesh(cyl(0.06, 0.06, 3.2, 5), M.gold, 0, 23.9, d / 2 + 1.6, g, false);
++      mesh(extrude(doorShape(1.8, 3.4), 0.5, false), M.woodDark, 0, 0, d / 2 + 3.9, g, false); for (const y of [1.3, 3.0]) mesh(box(3.7, 0.16, 0.2), M.iron, 0, y, d / 2 + 4.0, g, false); mesh(box(0.14, 5.0, 0.2), M.iron, 0, 2.5, d / 2 + 4.02, g, false);
++      for (const sd of [-1, 1]) mesh(box(0.7, 5.2, 0.7), M.plinth, sd * 2.3, 2.6, d / 2 + 4.0, g); mesh(box(5.4, 0.9, 0.9), M.plinth, 0, 5.4, d / 2 + 4.0, g);
++      mesh(box(8.4, 0.5, 2.2), M.plinth, 0, 0.55, d / 2 + 4.9, g); mesh(box(7.0, 0.5, 1.6), M.plinth, 0, 0.25, d / 2 + 5.8, g);
++      { const em = new THREE.Mesh(new THREE.CircleGeometry(1.2, 24), new THREE.MeshStandardMaterial({ map: emblemM.map, roughness: 1 })); em.position.set(0, 10.4, d / 2 + 3.93); g.add(em); }
++      plaque(g, 'BALAI SERIKAT PEDAGANG', 'Merchant Quarter', 0, 7.0, d / 2 + 3.95, 5.4, 1.3);
++      for (const sd of [-1, 1]) {
++        const t = new THREE.Group(); t.position.set(sd * (w / 2 + 0.4), 0, d / 2 - 0.5); g.add(t); roundTower(t, 2.3, 10, 4.4, M.roofBlue);
++        mbanner(g, sd * (w / 2 - 3.2), y0 + 4.2, d / 2 + 0.14, 1.2, 2.8); mbanner(g, sd * 3.2, y0 + 6.2, d / 2 + 3.95, 1.0, 3.0);
++        mesh(box(0.2, 0.3, 0.2), M.lantern, sd * 3.0, y0 + 2.4, d / 2 + 4.1, g, false); bcol(b, sd * (w / 2 + 0.4), d / 2 - 0.5, 2.7);
++      }
++      colRect(b, 0.4); bcol(b, 0, d / 2 + 1.8, 3.4);
++    } else if (b.kind === 'bank') {
++      const y0 = shell(g, w, d, 5.6, 3.6, { wall: M.hall, roof: M.roofDark, windows: false, chimney: false, beams: false });
++      for (let i = 0; i < 4; i++) { const x = -2.7 + i * 1.8; mesh(cyl(0.38, 0.42, 4.8, 10), M.plinth, x, y0 + 2.4, d / 2 + 1.5, g); mesh(box(1.0, 0.3, 1.0), M.plinth, x, y0 + 4.95, d / 2 + 1.5, g, false); bcol(b, x, d / 2 + 1.5, 0.5); }
++      mesh(box(7.6, 0.5, 2.6), M.plinth, 0, y0 + 5.25, d / 2 + 1.4, g);
++      { const tri = new THREE.Shape(); tri.moveTo(-3.8, 0); tri.lineTo(3.8, 0); tri.lineTo(0, 1.7); mesh(new THREE.ExtrudeGeometry(tri, { depth: 0.4, bevelEnabled: false }), M.hall, 0, y0 + 5.5, d / 2 + 2.4, g); }
++      door(g, d, y0, 1.9, 3.0);
++      for (const sx of [-1, 1]) { mesh(new THREE.PlaneGeometry(0.9, 1.3), M.window, sx * (w / 2 - 2.0), y0 + 2.4, d / 2 + 0.07, g, false); for (let k = -1; k <= 1; k++) mesh(box(0.06, 1.3, 0.06), M.iron, sx * (w / 2 - 2.0) + k * 0.28, y0 + 2.4, d / 2 + 0.12, g, false); }
++      { const em = new THREE.Mesh(new THREE.CircleGeometry(0.8, 24), new THREE.MeshStandardMaterial({ map: emblemM.map, roughness: 1 })); em.position.set(0, y0 + 5.0, d / 2 + 2.72); g.add(em); }
++      plaque(g, 'BANK KEKAISARAN', null, 0, y0 + 4.1, d / 2 + 0.1, 4.2, 0.8);
++      mesh(box(7.4, 0.5, 1.6), M.plinth, 0, 0.25, d / 2 + 2.9, g, false);
++      mbanner(g, -w / 2 + 0.9, y0 + 3.2, d / 2 + 0.14, 0.9, 2.1); mbanner(g, w / 2 - 0.9, y0 + 3.2, d / 2 + 0.14, 0.9, 2.1);
++      colRect(b);
++    } else if (b.kind === 'scale') {
++      const y0 = shell(g, w, d, 4.8, 3.4, { wall: M.plaster, roof: M.roofRed });
++      door(g, d, y0, 2.4, 2.9); plaque(g, 'RUMAH TIMBANG', null, 0, y0 + 4.3, d / 2 + 0.1, 3.8, 0.78);
++      { const ry = y0 + 4.8 + 3.4 + 0.1; mesh(cyl(0.12, 0.16, 2.4, 6), M.gold, 0, ry + 1.2, 0, g, false); mesh(box(3.8, 0.14, 0.14), M.gold, 0, ry + 2.4, 0, g, false);
++        for (const sd of [-1, 1]) { mesh(cyl(0.7, 0.55, 0.12, 12), M.gold, sd * 1.8, ry + 1.2, 0, g, false); for (const k of [-0.4, 0.4]) mesh(cyl(0.02, 0.02, 1.2, 4), M.gold, sd * 1.8 + k, ry + 1.8, 0, g, false); } }
++      { const q = new THREE.Group(); q.position.set(-w / 2 - 3.0, 0, d / 2 - 0.2); g.add(q);   // timbangan umum di halaman
++        mesh(box(2.6, 0.3, 2.6), M.plinth, 0, 0.15, 0, q); mesh(cyl(0.1, 0.12, 2.2, 6), M.iron, 0, 1.4, 0, q); mesh(box(2.8, 0.1, 0.1), M.iron, 0, 2.5, 0, q, false);
++        for (const sd of [-1, 1]) { mesh(cyl(0.5, 0.4, 0.1, 10), M.iron, sd * 1.3, 1.5, 0, q, false); mesh(cyl(0.015, 0.015, 1.0, 4), M.iron, sd * 1.3, 2.0, 0, q, false); }
++        sack(q, 1.3, 0.0, 0xcdbb8e); bcol(b, -w / 2 - 3.0, d / 2 - 0.2, 1.6); }
++      crate(g, w / 2 - 1.4, 0, d / 2 + 1.3, 0.9); sack(g, w / 2 - 2.6, d / 2 + 1.2); colRect(b);
++    } else if (b.kind === 'inn') {
++      const y0 = shell(g, w, d, 6.4, 3.8, { wall: M.plaster, roof: M.roofRed });
++      door(g, d, y0, 2.2, 2.9); plaque(g, b.name.toUpperCase(), null, 0, y0 + 4.5, d / 2 + 0.1, 5.0, 0.9);
++      for (const sx of [-1, 1]) mesh(new THREE.PlaneGeometry(0.95, 1.1), M.window, sx * (w / 2 - 1.5), y0 + 5.2, d / 2 + 0.07, g, false);
++      const pc = mesh(scaleUV(box(w * 0.5, 0.12, 2.3), 6, 1), awnMats[1], 0, y0 + 3.7, d / 2 + 1.9, g); pc.rotation.x = 0.16;
++      for (const sx of [-1, 1]) { mesh(cyl(0.08, 0.09, 3.6, 6), M.timber, sx * w * 0.24, y0 + 1.8, d / 2 + 2.9, g, false); bcol(b, sx * w * 0.24, d / 2 + 2.9, 0.4); }
++      mesh(box(0.1, 0.1, 1.5), M.iron, w / 2 - 1.0, y0 + 4.8, d / 2 + 0.75, g, false); mesh(box(1.0, 0.7, 0.1), M.gold, w / 2 - 1.0, y0 + 4.3, d / 2 + 1.5, g, false);
++      for (const sd of [-1, 1]) { mesh(box(0.2, 0.3, 0.2), M.lantern, sd * 1.9, y0 + 3.1, d / 2 + 0.2, g, false); }
++      mesh(box(4.6, 0.1, 0.1), M.timber, 0, 1.0, d / 2 + 4.3, g, false); for (const sx of [-1, 1]) mesh(cyl(0.07, 0.08, 1.1, 5), M.timber, sx * 2.3, 0.55, d / 2 + 4.3, g, false);
++      barrel(g, -w / 2 + 1.2, d / 2 + 1.2); barrel(g, -w / 2 + 2.1, d / 2 + 1.0); hay(g, w / 2 + 0.9, 1.0, 0.3, 2);
++      colRect(b);
++    } else if (b.kind === 'tavern') {
++      const y0 = shell(g, w, d, 5.6, 3.6, { wall: M.plaster, roof: M.roofRed });
++      door(g, d, y0, 1.9, 2.8); plaque(g, b.name.toUpperCase(), null, 0, y0 + 4.2, d / 2 + 0.1, 4.2, 0.8);
++      mesh(box(0.1, 0.1, 1.5), M.iron, w / 2 - 1.2, y0 + 4.6, d / 2 + 0.75, g, false); { const m = mesh(cyl(0.3, 0.26, 0.55, 8), M.gold, w / 2 - 1.2, y0 + 4.2, d / 2 + 1.5, g, false); void m; }
++      for (let k = 0; k < 2; k++) { const tx = -w / 2 + 2.6 + k * 4.2, tz = d / 2 + 3.0; mesh(cyl(0.7, 0.7, 0.1, 10), M.wood, tx, 0.9, tz, g); mesh(cyl(0.08, 0.1, 0.9, 6), M.woodDark, tx, 0.45, tz, g, false);
++        for (const a of [0, 2.1, 4.2]) mesh(cyl(0.22, 0.22, 0.1, 8), M.wood, tx + Math.cos(a) * 1.1, 0.5, tz + Math.sin(a) * 1.1, g, false);
++        mesh(cyl(0.04, 0.04, 2.3, 5), M.timber, tx, 1.7, tz, g, false); mesh(new THREE.ConeGeometry(1.5, 0.5, 8), awnMats[(k + 2) % awnMats.length], tx, 2.9, tz, g, false); bcol(b, tx, tz, 1.3); }
++      barrel(g, w / 2 - 1.2, d / 2 + 1.0); barrel(g, w / 2 - 2.1, d / 2 + 1.2); barrel(g, w / 2 - 1.6, d / 2 + 1.9);
++      colRect(b);
++    } else if (b.kind === 'warehouse') {
++      const y0 = shell(g, w, d, 5.2, 3.2, { wall: M.plasterGrey, roof: M.roofDark, windows: false, chimney: false });
++      mesh(box(4.4, 3.9, 0.2), M.woodDark, 0, y0 + 1.95, d / 2 + 0.08, g, false); for (const y of [0.8, 2.0, 3.2]) mesh(box(4.6, 0.16, 0.26), M.iron, 0, y0 + y, d / 2 + 0.14, g, false); mesh(box(0.12, 3.9, 0.26), M.iron, 0, y0 + 1.95, d / 2 + 0.14, g, false);
++      mesh(box(5.4, 0.4, 0.5), M.plinth, 0, y0 + 4.1, d / 2 + 0.2, g, false); plaque(g, b.name.toUpperCase(), null, 0, y0 + 4.5, d / 2 + 0.1, 3.8, 0.78);
++      { const hx = -w / 2 + 3.4; mesh(box(0.25, 0.25, 2.6), M.timber, hx, y0 + 4.3, d / 2 + 1.3, g, false); mesh(box(0.2, 0.2, 1.2), M.timber, hx, y0 + 3.8, d / 2 + 0.6, g, false).rotation.x = -0.6; mesh(cyl(0.02, 0.02, 1.7, 4), M.rope, hx, y0 + 3.4, d / 2 + 2.4, g, false); crate(g, hx, 0.9, d / 2 + 2.4, 0.8); }
++      for (let i = 0; i < 3; i++) sack(g, w / 2 - 1.4 - (i % 2) * 0.8, d / 2 + 1.2 + (i > 1 ? 0.8 : 0), i % 2 ? 0xcdbb8e : 0xbfa974);
++      crate(g, w / 2 - 1.5, 0.0, d / 2 + 2.6, 0.9); crate(g, w / 2 - 1.5, 0.75, d / 2 + 2.6, 0.7, 0.2);
++      bcol(b, w / 2 - 1.5, d / 2 + 1.8, 1.7);
++      { const p = bp(b, -5.5, d / 2 + 5.2); wagon(p.x, p.z, Math.PI / 2 - b.face, b.id === 'gudang-1' ? 'crates' : 'sacks'); }
++      colRect(b);
++    }
++  }
++  yield;
++
++  // ---------- lampu jalan (alun-alun & jalan utama) + pohon di ruang kosong ----------
++  for (let i = 0; i < 12; i++) { if ([0, 5, 6, 11].includes(i)) continue; const a = (15 + i * 30) * D2R, p = dpt(D2.plaza.u + 21.8 * Math.cos(a), 21.8 * Math.sin(a)); lamp(p.x, p.z); }
++  for (const u of [78, 88, 134]) for (const sd of [-1, 1]) { const p = dpt(u, sd * (D2.avenue.w / 2 + 0.9)); lamp(p.x, p.z); }
++  for (let n = 0, tries = 0; n < (COARSE ? 6 : 12) && tries < 800; tries++) {
++    const p = dpt(Rn(76, 165), Rn(-85, 85)); if (!inD2(p.x, p.z, 3.5) || d2Blocked(p.x, p.z, 5)) continue;
++    if (trees.some(t => Math.hypot(t.x - p.x, t.z - p.z) < 10)) continue; addTree(p.x, p.z, Rn(0.55, 0.8)); n++;
++  }
++  yield;
++  // ======================================================================
++
++  // ---------- Distrik 3-5: lahan kosong bertanda ----------
+   const stakes = [];
+   for (const g of GATES) {   // patok di tepi jalan radial yang berbatasan dengan distrik yang belum dibangun
+     const dx = Math.cos(g.psi), dz = Math.sin(g.psi), nx = -dz, nz = dx;
+     for (let s = RING.r + 8; s < APOTHEM - 10; s += 7) for (const sd of [-1, 1]) {
+       const off = (g.k === 2 ? AVENUE_W : ROAD_W) / 2 + 1.0, x = dx * s + nx * sd * off, z = dz * s + nz * sd * off;
+-      if (inD1(x, z, -1.5) || d1Blocked(x, z, 1)) continue; if (g.k === 2 && x < -RING.r - 8 && Math.abs(z) < 12) continue;
++      if (inD1(x, z, -1.5) || d1Blocked(x, z, 1) || inD2(x, z, -1.5) || d2Blocked(x, z, 1)) continue; if (g.k === 2 && x < -RING.r - 8 && Math.abs(z) < 12) continue;
+       stakes.push({ x, z });
+     }
+   }

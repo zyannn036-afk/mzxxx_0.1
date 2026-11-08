@@ -1,0 +1,287 @@
+--- a/golem.js	2026-11-02 00:10:57.494831387 +0000
++++ b/golem.js	2026-11-02 00:10:57.497980443 +0000
+@@ -29,6 +29,7 @@
+   rocks: { dur: 2.0, hit: 1.0 },
+   rain: { dur: 2.1, hit: 1.1 },
+   roar: { dur: 2.0, hit: 0.6 },
++  pillars: { dur: 2.2, hit: 1.15 },   // Pilar Beruntun: hantam tanah -> deretan pilar batu menyembul berurutan mengejar pemain
+ };
+ 
+ function fallbackGolem(mat) {             // kotak-kotak dengan hierarki & nama sama seperti golem.glb
+@@ -92,6 +93,11 @@
+       aw = kf(t, [[0, 0], [0.3, 1], [1.7, 1], [2.1, 0]]);
+       const a = kf(t, [[0, 0], [0.9, -2.8], [1.25, -2.8], [1.4, -1.0], [2.1, 0]]);
+       o.sxL = o.sxR = a; o.exL = o.exR = -0.2; o.szL = 0.35; o.szR = -0.35; o.bx = kf(t, [[0, 0], [0.9, -0.3], [1.4, 0.3], [2.1, 0]]) + 0.02 * Math.sin(t * 40); o.hx = kf(t, [[0, 0], [0.9, -0.5], [1.4, 0.2], [2.1, 0]]); o.root = kf(t, [[0, 0], [1.4, -0.25], [2.1, 0]]);
++    } else if (s.at === 'pillars') {   // Pilar Beruntun: kedua lengan naik, hantam tanah, lalu menekan tanah selagi pilar-pilar menyembul
++      aw = kf(t, [[0, 0], [0.3, 1], [1.8, 1], [2.2, 0]]);
++      const a = kf(t, [[0, 0], [0.95, -2.9], [1.15, -0.85], [1.8, -0.85], [2.2, 0]]), e = kf(t, [[0, 0], [0.95, -0.4], [1.15, 0], [2.2, 0]]), z = kf(t, [[0, 0], [0.95, 0.3], [1.15, 0.15], [2.2, 0]]);
++      o.sxL = o.sxR = a; o.exL = o.exR = e; o.szL = 0.1 + z; o.szR = -0.1 - z;
++      o.bx = kf(t, [[0, 0], [0.95, -0.34], [1.15, 0.45], [1.8, 0.38], [2.2, 0]]) + (t > 1.15 && t < 1.8 ? 0.015 * Math.sin(t * 45) : 0); o.hx = kf(t, [[0, 0], [0.95, -0.45], [1.15, 0.3], [2.2, 0]]); o.root = kf(t, [[0, 0], [0.95, 0.1], [1.15, -0.42], [1.8, -0.34], [2.2, 0]]);
+     } else if (s.at === 'roar') {      // meraung: dada membusung, lengan terbuka, badan bergetar
+       aw = kf(t, [[0, 0], [0.3, 1], [1.5, 1], [2.0, 0]]); const sh = 0.015 * Math.sin(t * 55);
+       o.sxL = o.sxR = -0.5; o.szL = 1.0; o.szR = -1.0; o.exL = o.exR = -0.5; o.bx = -0.28 + sh; o.hx = -0.55; o.root = 0.05;
+--- a/game.js	2026-11-02 00:10:57.496329838 +0000
++++ b/game.js	2026-11-02 00:10:57.498014831 +0000
+@@ -149,7 +149,7 @@
+ 
+ // ---------- Player ----------
+ const player = new THREE.Group(); scene.add(player);
+-const P = { hp: 100, max: 100, atk: 0, dur: 0.45, cross: false, combo: 0, comboT: 0, hand: -1, hit: false, jy: 0, fx2: false, fx3: false, set: null, roll: 0, inv: 0, sh: 0, drawT: 0, runT: 0, heavy: 0.3, vs: 0, sl: 0, sm: 0, drawn: false, face: 0, rv: new THREE.Vector3(0, 0, 1), v: new THREE.Vector3(), ph: 0, t: 0 };
++const P = { hp: 100, max: 100, atk: 0, dur: 0.45, cross: false, combo: 0, comboT: 0, hand: -1, hit: false, jy: 0, fx2: false, fx3: false, set: null, roll: 0, inv: 0, sh: 0, drawT: 0, runT: 0, heavy: 0.3, vs: 0, sl: 0, sm: 0, drawn: false, face: 0, rv: new THREE.Vector3(0, 0, 1), v: new THREE.Vector3(), ph: 0, t: 0, air: false, vy: 0, kb: new THREE.Vector3() };
+ let bones = null, vrm = null;
+ 
+ const slashGeo = (() => { // busur ungu: ekor tipis & redup -> kepala tebal & terang (putih keunguan)
+@@ -416,7 +416,7 @@
+ function startKillCam(e) {
+   e.dying = true; e.hp = 1; e.stun = 0; e.wind = 0; e.kv.set(0, 0, 0); e.g.scale.setScalar(1);
+   slow.t = SLOW_TOTAL; P.inv = 5; // pemain kebal selama adegan
+-  [...orbs, ...rings].forEach(o => scene.remove(o.m)); orbs.length = 0; rings.length = 0; stopLaser(); clearBlasts(); // bersihkan serangan boss
++  [...orbs, ...rings].forEach(o => scene.remove(o.m)); orbs.length = 0; rings.length = 0; stopLaser(); clearBlasts(); clearGPillars(); // bersihkan serangan boss
+   burst(e.g.position.clone().setY(1.3), 0xffffff, 30, 8); shake = 0.6;
+ }
+ function dyingTick(e) { // musuh bergetar & bersinar sebelum hancur
+@@ -457,7 +457,7 @@
+     player.position.y = world.palace.groundY(player.position.x, player.position.z, player.position.y); return;
+   }
+   if (state === 'world') { world.collide(player.position, PLAYER_R); world.clamp(player.position); return; } // dunia luar: pohon & batas dunia (dataran + desa + Hutan Besar)
+-  if (player.position.length() > R - 1.5) player.position.setLength(R - 1.5); // tetap di dalam arena
++  { const hl = Math.hypot(player.position.x, player.position.z); if (hl > R - 1.5) { player.position.x *= (R - 1.5) / hl; player.position.z *= (R - 1.5) / hl; } } // tetap di dalam arena (hanya bidang xz)
+ }
+ function updateEnemies(dt) {
+   for (const e of [...enemies]) {
+@@ -531,7 +531,7 @@
+       scene.remove(r.m); rings.splice(rings.indexOf(r), 1);
+     }
+   }
+-  updateBlasts(dt); updateQuakes(dt);
++  updateBlasts(dt); updateQuakes(dt); updateGPillars(dt);
+ }
+ 
+ // ---------- Monster liar di Hutan Besar: slime & goblin muncul acak, hanya selama pemain di dalam hutan ----------
+@@ -665,13 +665,13 @@
+ 
+ const canFight = () => state === 'play' || state === 'world'; // serang & skill juga bisa dipakai di dunia luar (melawan monster hutan)
+ function attack() {
+-  if (!canFight() || P.atk > 0 || P.roll > 0 || P.vs > 0 || P.sl > 0 || P.sm > 0) return;
++  if (!canFight() || P.air || P.atk > 0 || P.roll > 0 || P.vs > 0 || P.sl > 0 || P.sm > 0) return;
+   P.hit = false; P.comboT = 1.2;
+   if (++P.combo >= 4) { P.combo = 0; P.cross = true; P.dur = P.atk = CX.total; P.fx2 = P.fx3 = P.sx = false; P.set = new Set(); audio.sfx('slash'); } // serangan ke-4: silang -> lompat mundur -> terjang + silang
+   else { P.cross = false; P.dur = P.atk = ATK_T; P.hand = -P.hand; audio.sfx('sword'); } // bergantian kanan-kiri
+ }
+ function roll() {
+-  if (state !== 'play' || P.roll > 0 || P.atk > 0 || P.vs > 0 || P.sl > 0 || P.sm > 0) return;
++  if (state !== 'play' || P.air || P.roll > 0 || P.atk > 0 || P.vs > 0 || P.sl > 0 || P.sm > 0) return;
+   P.roll = 0.45; P.inv = Math.max(P.inv, 0.5);
+   P.rv.set(Math.sin(P.face), 0, Math.cos(P.face));
+ }
+@@ -1100,7 +1100,7 @@
+ }
+ function skill(k) {
+   const s = SK[k];
+-  if (!canFight() || s.t > 0 || P.roll > 0 || P.vs > 0 || P.sl > 0 || P.sm > 0 || (P.atk > 0 && P.cross)) return;
++  if (!canFight() || P.air || s.t > 0 || P.roll > 0 || P.vs > 0 || P.sl > 0 || P.sm > 0 || (P.atk > 0 && P.cross)) return;
+   s.t = s.cd;
+   const f = new THREE.Vector3(Math.sin(P.face), 0, Math.cos(P.face));
+   if (k === 's1') { // 1. Vertical Spin: berputar vertikal dengan dua pedang
+@@ -1516,7 +1516,7 @@
+ 
+ // ---------- Bos golem: Tharok (golem.glb), dilawan lewat Pintu Penjaga di Reruntuhan Kuno ----------
+ // Model & gerak sendi ada di golem.js; di sini AI, serangan & efeknya. Serangan: Palu (satu lengan, jarak dekat), Hentakan (kedua lengan, gelombang kejut di sekitarnya),
+-// Lempar Batu (3 bongkah, jarak jauh), dan setelah darah < 50% ia mengamuk (lebih cepat) + Hujan Batu (lingkaran peringatan di sekitar pemain).
++// Lempar Batu (3 bongkah, jarak jauh), Pilar Beruntun (deretan pilar tanah menyembul mengejar pemain & melontarkannya ke atas), dan setelah darah < 50% ia mengamuk (lebih cepat) + Hujan Batu (lingkaran peringatan di sekitar pemain).
+ const quakes = []; // gelombang kejut berbentuk cincin
+ // Batu lempar golem: bongkah RUNCING (ikosahedron yang sebagian titiknya ditarik keluar jadi duri; titik yang sama = duri yang sama, jadi tidak ada retakan)
+ const rockGeo = (() => {
+@@ -1550,12 +1550,93 @@
+     if (u >= 1) { scene.remove(q.wave); q.wave.geometry.dispose(); q.wave.material.dispose(); quakes.splice(quakes.indexOf(q), 1); }
+   }
+ }
++
++// ---------- Pilar Beruntun (skill golem): deretan pilar batu menyembul dari tanah satu demi satu, mengejar pemain ----------
++// Tiap pilar punya lingkaran peringatan merah yang terisi; saat penuh, pilar menyembul & MELONTARKAN pemain ke atas (kebal saat berguling).
++const PILLAR = { rad: 1.9, warn: 0.65, gap: 0.17, step: 2.6, H: 6.4, rise: 0.14, hold: 0.85, sink: 0.4, launch: 15, gravity: 24 };
++const gPillars = [], gChains = [];
++const gPillarGeo = (() => {   // batang runcing bersegi 7, titik-titiknya digeser sedikit supaya tidak mulus
++  const g = new THREE.CylinderGeometry(0.8, 1.4, PILLAR.H, 7, 4), p = g.attributes.position;
++  for (let i = 0; i < p.count; i++) {
++    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), h = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453, k = h - Math.floor(h), top = (y / PILLAR.H + 0.5);
++    p.setXYZ(i, x * (0.85 + 0.35 * k), y + (y > PILLAR.H * 0.45 ? 0.5 * k : 0), z * (0.85 + 0.35 * k) * (1 - 0.15 * top));
++  }
++  g.computeVertexNormals(); return g;
++})();
++const gPillarMat = new THREE.MeshStandardMaterial({ color: 0x9fc2d6, emissive: 0x103848, roughness: 0.85, flatShading: true });
++const warnGeo = new THREE.CircleGeometry(1, 32);
++function spawnPillarChain(from, dir, n, dmg) { // from: posisi golem, dir: arah awal (ternormalisasi), n: jumlah pilar
++  gChains.push({ x: from.x + dir.x * 2.0, z: from.z + dir.z * 2.0, dx: dir.x, dz: dir.z, n, i: 0, t: 0, dmg });
++}
++function addPillar(x, z, dmg, k) {
++  const am = (c, op) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, depthWrite: false, side: THREE.DoubleSide });
++  const base = new THREE.Mesh(warnGeo, am(0xff2020, 0.25)), fill = new THREE.Mesh(warnGeo, am(0xff5030, 0.45));
++  for (const m of [base, fill]) { m.rotation.x = -Math.PI / 2; m.position.set(x, 0.06, z); scene.add(m); }
++  base.scale.setScalar(PILLAR.rad); fill.scale.setScalar(0.01); fill.position.y = 0.07;
++  gPillars.push({ x, z, dmg, k, st: 0, t: 0, base, fill, m: null });
++}
++function launchPlayer(fx, fz, vy = PILLAR.launch) { // lontarkan pemain ke atas (+ sedikit terdorong menjauhi pusat pilar)
++  const dx = player.position.x - fx, dz = player.position.z - fz, l = Math.hypot(dx, dz) || 1;
++  P.air = true; P.vy = vy; P.kb.set(dx / l * 3.2, 0, dz / l * 3.2);
++  P.atk = 0; P.cross = false; P.combo = 0; P.roll = 0; P.hit = false;
++  burst(player.position.clone().setY(0.4), 0xcfefff, 12, 7);
++}
++function erupt(p) {
++  scene.remove(p.base); scene.remove(p.fill); p.base.material.dispose(); p.fill.material.dispose();
++  const m = new THREE.Mesh(gPillarGeo, gPillarMat); m.castShadow = m.receiveShadow = true;
++  const sc = rnd(0.9, 1.15); m.scale.set(sc, rnd(0.9, 1.1), sc); m.rotation.set(rnd(-0.06, 0.06), rnd(0, 6.28), rnd(-0.06, 0.06));
++  m.position.set(p.x, -PILLAR.H / 2, p.z); scene.add(m); p.m = m; p.st = 1; p.t = 0;
++  shake = Math.max(shake, 0.32); const c = new THREE.Vector3(p.x, 0.3, p.z); burst(c, 0xcfefff, 14, 7); burst(c, 0x8fb8d0, 10, 5);
++  if (p.k % 2 === 0) audio.sfx('thud', { vol: 0.6, rate: 0.5 + Math.random() * 0.2 }); if (p.k % 3 === 0) golemImpact(0.35);
++  if (Math.hypot(player.position.x - p.x, player.position.z - p.z) < PILLAR.rad + 0.3 && player.position.y < 1.2) { // kena: damage + terlontar (berguling / kebal = menghindar)
++    const can = P.inv <= 0 && state === 'play';
++    hurtPlayer(p.dmg); if (can) launchPlayer(p.x, p.z);
++  }
++}
++function updateGPillars(dt) {
++  for (const c of [...gChains]) { // rantai: tiap `gap` detik letakkan pilar berikutnya, arahnya membelok ke pemain
++    c.t -= dt;
++    while (c.t <= 0 && c.i < c.n) {
++      const a0 = Math.atan2(c.dx, c.dz); let da = Math.atan2(player.position.x - c.x, player.position.z - c.z) - a0; da = Math.atan2(Math.sin(da), Math.cos(da));
++      const a = a0 + Math.max(-0.3, Math.min(0.3, da)); c.dx = Math.sin(a); c.dz = Math.cos(a);
++      c.x += c.dx * PILLAR.step; c.z += c.dz * PILLAR.step;
++      if (Math.hypot(c.x, c.z) > R - 1.2) { c.i = c.n; break; } // mentok di tepi arena
++      addPillar(c.x, c.z, c.dmg, c.i); c.i++; c.t += c.gap || PILLAR.gap;
++    }
++    if (c.i >= c.n) gChains.splice(gChains.indexOf(c), 1);
++  }
++  for (const p of [...gPillars]) {
++    p.t += dt;
++    if (p.st === 0) {
++      const u = clamp01(p.t / PILLAR.warn); p.fill.scale.setScalar(Math.max(0.01, u) * PILLAR.rad); p.base.material.opacity = 0.22 + 0.08 * Math.sin(p.t * 24);
++      if (p.t >= PILLAR.warn) erupt(p);
++    } else {
++      const top = PILLAR.H * 0.85; let y;
++      if (p.st === 1) { const u = clamp01(p.t / PILLAR.rise); y = top * (1 - Math.pow(1 - u, 3)); if (u >= 1) { p.st = 2; p.t = 0; } }
++      else if (p.st === 2) { y = top; p.m.position.x = p.x + 0.04 * Math.sin(p.t * 60) * Math.max(0, 1 - p.t * 3); if (p.t >= PILLAR.hold) { p.st = 3; p.t = 0; } }
++      else { const u = clamp01(p.t / PILLAR.sink); y = top * (1 - u * u * (3 - 2 * u)); if (u >= 1) { scene.remove(p.m); gPillars.splice(gPillars.indexOf(p), 1); continue; } }
++      p.m.position.y = y - PILLAR.H / 2;
++    }
++  }
++}
++function clearGPillars() {
++  for (const p of gPillars) { scene.remove(p.base); scene.remove(p.fill); if (p.m) scene.remove(p.m); else { p.base.material.dispose(); p.fill.material.dispose(); } }
++  gPillars.length = 0; gChains.length = 0;
++}
++function airTick(dt) { // pemain terlontar: gravitasi, terdorong menjauh, mendarat
++  if (!P.air) return;
++  P.vy -= PILLAR.gravity * dt; player.position.y += P.vy * dt; player.position.addScaledVector(P.kb, dt); P.kb.multiplyScalar(Math.exp(-dt * 2.2));
++  if (player.position.y <= 0 && P.vy < 0) {
++    player.position.y = 0; P.air = false; P.vy = 0; P.kb.set(0, 0, 0); P.inv = Math.max(P.inv, 0.5); // jeda kebal sebentar setelah mendarat
++    shake = Math.max(shake, 0.25); burst(player.position.clone().setY(0.2), 0xcfefff, 10, 5); audio.sfx('thud', { vol: 0.5, rate: 0.8 });
++  }
++}
+ function mkGolem() {
+   const rig = buildGolem(), g = new THREE.Group(); g.add(rig.root);
+   g.position.set(GOLEM.spawn.x, 0, GOLEM.spawn.z); g.rotation.y = 0; scene.add(g);   // menghadap +z, ke arah pemain
+   const pose = newGolemPose(); pose.intro = 0; poseGolem(rig, pose);
+   const e = { g, rig, pose, mat: rig.mat, boss: true, golem: true, hp: GOLEM.hp, max: GOLEM.hp, sp: GOLEM.speed, r: GOLEM.r, cd: 1, wind: 0, flash: 0, kv: new THREE.Vector3(), stun: 0,
+-    intro: 1.6, ign: false, at: null, t: 0, hit: false, gap: 0.6, cdA: 1.2, cdB: 5, cdC: 3.5, cdD: 6, rage: false, fs: 0 };
++    intro: 1.6, ign: false, at: null, t: 0, hit: false, gap: 0.6, cdA: 1.2, cdB: 5, cdC: 3.5, cdD: 6, cdE: 4, rage: false, fs: 0 };
+   enemies.push(e); return e;
+ }
+ function golemStart(e, at, d, fwd) {
+@@ -1565,6 +1646,7 @@
+   if (at === 'punch') { ps.side = Math.random() < 0.5 ? 1 : -1; e.cdA = e.rage ? 1.8 : 2.6; }
+   else if (at === 'slam') { e.cdB = e.rage ? 5.5 : 7.5; ringAt(g.position.x + fwd.x * 1.5, g.position.z + fwd.z * 1.5, 7.5, A.hit, 30); }
+   else if (at === 'rocks') e.cdC = e.rage ? 4.5 : 6.5;
++  else if (at === 'pillars') e.cdE = e.rage ? 7 : 10;
+   else if (at === 'rain') {
+     e.cdD = 8; const pp = player.position;
+     [[0, 0], [3.2, 1], [-3.4, 2.4], [1.2, -3.6], [-1.4, 4.2]].forEach(([ox, oz], i) => {
+@@ -1584,12 +1666,16 @@
+       const m = new THREE.Mesh(rockGeo, new THREE.MeshStandardMaterial({ color: 0x9fc2d6, emissive: 0x103848, roughness: 0.8, flatShading: true }));
+       m.position.copy(o); m.castShadow = true; scene.add(m); orbs.push({ m, v: to.clone().applyAxisAngle(UP, a).multiplyScalar(13), spin: rnd(4, 8), rock: true });
+     }
++  } else if (e.at === 'pillars') { // tangan menghantam tanah -> rantai pilar mulai dari depan golem (mengamuk: dua rantai menjepit dari kiri & kanan)
++    shake = Math.max(shake, 0.6); burst(g.position.clone().addScaledVector(fwd, 3.2).setY(0.4), 0xcfefff, 20, 8); audio.sfx('thud', { vol: 0.8, rate: 0.6 }); golemImpact(0.8);
++    if (e.rage) for (const a of [-0.3, 0.3]) spawnPillarChain(g.position, fwd.clone().applyAxisAngle(UP, a), 8, 24);
++    else spawnPillarChain(g.position, fwd, 8, 20);
+   } else if (e.at === 'roar') { shake = Math.max(shake, 0.9); ps.glow = 1; burst(g.position.clone().setY(3), 0xcfefff, 40, 10); }
+ }
+ function golemAI(e, d, dist, dt) {
+   const ps = e.pose, g = e.g, A = e.at && ATTACK[e.at];
+   ps.ph += dt; ps.glow = Math.max(0, ps.glow - dt * 1.5); ps.rage += ((e.rage ? 1 : 0) - ps.rage) * (1 - Math.exp(-dt * 3));
+-  e.cdA -= dt; e.cdB -= dt; e.cdC -= dt; e.cdD -= dt; if (e.gap > 0) e.gap -= dt;
++  e.cdA -= dt; e.cdB -= dt; e.cdC -= dt; e.cdD -= dt; e.cdE -= dt; if (e.gap > 0) e.gap -= dt;
+   const fwd = new THREE.Vector3(Math.sin(g.rotation.y), 0, Math.cos(g.rotation.y));
+   let df = Math.atan2(d.x, d.z) - g.rotation.y; df = Math.atan2(Math.sin(df), Math.cos(df)); ps.look = df;
+   const turn = (rate) => { g.rotation.y += Math.max(-rate * dt, Math.min(rate * dt, df)); };
+@@ -1612,6 +1698,7 @@
+     else if (e.gap <= 0) {
+       if (dist < 6.2 && e.cdA <= 0) golemStart(e, 'punch', d, fwd);
+       else if (dist < 9.5 && e.cdB <= 0) golemStart(e, 'slam', d, fwd);
++      else if (dist > 4 && e.cdE <= 0) golemStart(e, 'pillars', d, fwd);
+       else if (dist > 5.5 && e.cdC <= 0) golemStart(e, 'rocks', d, fwd);
+       else if (e.rage && e.cdD <= 0) golemStart(e, 'rain', d, fwd);
+     }
+@@ -1641,7 +1728,8 @@
+ function banner(t, ms = 1800) { $('msg').textContent = t; setTimeout(() => { if (state === 'play') $('msg').textContent = ''; }, ms); }
+ // ---------- Dunia luar -> lubang -> dungeon ----------
+ const F = { t: 0 }, FALL_TOTAL = 1.3;
+-function enterWorld(fromHole = false, note = null) { // mulai game di dataran hijau (fromHole: muncul di tepi lubang setelah keluar dungeon)
++function enterWorld(fromHole = false, note = null) {
++  clearGPillars(); P.air = false; P.vy = 0; player.position.y = 0; // mulai game di dataran hijau (fromHole: muncul di tepi lubang setelah keluar dungeon)
+   state = 'world'; arenaG.visible = false; world.group.visible = true; audio.setScene('world');
+   scene.background.set(SKY_COLOR); scene.fog = worldFog;
+   const fromGolem = fromHole && golemMode;   // keluar dari arena golem -> muncul di depan Pintu Penjaga
+@@ -1820,15 +1908,15 @@
+ function showAgain() { canAgain = true; $('again').hidden = false; $('exit').hidden = state !== 'win' && !golemMode; $('msg').textContent += '\n\n' + againHint(); }
+ function end(win) {
+   loseInWorld = !win && state === 'world'; // kalah di hutan -> bangun lagi di dunia luar, bukan masuk dungeon
+-  stopLaser(); clearBlasts(); state = win ? 'win' : 'lose'; canAgain = false; $('again').hidden = true; $('exit').hidden = true;
++  stopLaser(); clearBlasts(); clearGPillars(); state = win ? 'win' : 'lose'; canAgain = false; $('again').hidden = true; $('exit').hidden = true;
+   if (win) { if (golemMode) { golemBeaten = true; ruinsSave({ golem: true }); } $('msg').textContent = golemMode ? 'GOLEM HANCUR!\nPenjaga Reruntuhan telah dikalahkan' : 'KEMENANGAN!\nVillain telah dikalahkan'; setTimeout(() => { if (state === 'win') showAgain(); }, 900); }
+   else { $('msg').textContent = ''; startDefeat(); }
+ }
+ function restart(toWorld = false) {
+-  resetDefeat(); slow.t = 0; stopLaser(); clearBlasts(); endVS(); endSL(); endSM(true); endBF();
++  resetDefeat(); slow.t = 0; stopLaser(); clearBlasts(); clearGPillars(); endVS(); endSL(); endSM(true); endBF();
+   [...enemies].forEach(e => scene.remove(e.g)); enemies.length = 0;
+   [...orbs, ...rings].forEach(o => scene.remove(o.m)); orbs.length = 0; rings.length = 0;
+-  Object.assign(P, { hp: P.max, atk: 0, combo: 0, cross: false, jy: 0, roll: 0, inv: 0, sh: 0, drawT: 0, runT: 0, heavy: 0.3 });
++  Object.assign(P, { hp: P.max, atk: 0, combo: 0, cross: false, jy: 0, roll: 0, inv: 0, sh: 0, drawT: 0, runT: 0, heavy: 0.3, air: false, vy: 0 }); P.kb.set(0, 0, 0);
+   Object.values(SK).forEach(s => s.t = 0); waves.forEach(w => scene.remove(w.g)); waves.length = 0; player.position.set(0, 0, 0); P.v.set(0, 0, 0);
+   wave = 0; next = 0; $('boss').hidden = true; $('exit').hidden = true;
+   if (toWorld || loseInWorld) { const lost = loseInWorld; loseInWorld = false; enterWorld(true, lost ? 'Louis pingsan...\nTerbangun kembali di Dataran Hijau' : null); return; }
+@@ -1895,7 +1983,7 @@
+   D.t += dt; const t = D.t, b = bones || {}, f = faceVec();
+   if (D.v > 0.05) { // terdorong lalu melambat
+     player.position.addScaledVector(D.dir, D.v * dt); D.v *= Math.exp(-dt * 5);
+-    if (!loseInWorld && player.position.length() > R - 1.5) player.position.setLength(R - 1.5);
++    if (!loseInWorld) { const hl = Math.hypot(player.position.x, player.position.z); if (hl > R - 1.5) { player.position.x *= (R - 1.5) / hl; player.position.z *= (R - 1.5) / hl; } }
+   }
+   let fd = P.face - player.rotation.y; fd = Math.atan2(Math.sin(fd), Math.cos(fd)); player.rotation.y += fd * (1 - Math.exp(-dt * 14));
+   const kb = 1 - Math.exp(-dt * (t < T_STAG ? 20 : 10));
+@@ -2015,7 +2103,7 @@
+       P.v.lerp(moving ? mv.multiplyScalar(P.atk > 0 ? 1.5 : 5.5 * (state === 'world' && (keys.ShiftLeft || keys.ShiftRight) ? 1.7 : 1)) : ZERO, 1 - Math.exp(-dt * 10));
+       player.position.addScaledVector(P.v, dt);
+     }
+-    if (state === 'play' && player.position.length() > R - 1.5) player.position.setLength(R - 1.5);
++    if (state === 'play') { const hl = Math.hypot(player.position.x, player.position.z); if (hl > R - 1.5) { player.position.x *= (R - 1.5) / hl; player.position.z *= (R - 1.5) / hl; } }
+     collidePlayer(); // tidak bisa menembus monster / pohon
+     P.inv = Math.max(0, P.inv - dt);
+     let fd = P.face - player.rotation.y;
+@@ -2051,6 +2139,7 @@
+     }
+   } else if (state === 'lose') defeatTick(dt);
+   else if (state === 'fall') fallTick(dt);
++  airTick(dt);
+   updateSwords(dt);
+   tickSkills(dt);
+   vrm && vrm.update(dt);
+@@ -2071,7 +2160,7 @@
+   const C = CAMS[camMode];
+   if (!orbit()) camYaw += (0 - camYaw) * Math.min(1, rdt * 5); // mode lain: kembali ke depan. Mode 360°: bebas
+   zoomS += (zoom - zoomS) * Math.min(1, rdt * 10);
+-  let lx = target.x, lz = target.z, ly = C.look + (state === 'fall' ? player.position.y * 0.85 : inPalace ? player.position.y : 0); // di istana lantai 2 kamera ikut menatap setinggi lantai
++  let lx = target.x, lz = target.z, ly = C.look + (state === 'fall' ? player.position.y * 0.85 : inPalace ? player.position.y : P.air ? player.position.y * 0.8 : 0); // di istana lantai 2 kamera ikut menatap setinggi lantai
+   if (state === 'lose') { // kamera sinematik: turun rendah, mendekat dari samping
+     const f = faceVec(), sd = new THREE.Vector3(f.z, 0, -f.x), low = clamp01((D.t - 0.3) / 1.2);
+     const want = target.clone().addScaledVector(sd, 4.6 - 1.3 * low).addScaledVector(f, 0.8).setY(1.4 - 0.85 * low);

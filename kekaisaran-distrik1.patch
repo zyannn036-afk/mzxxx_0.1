@@ -1,0 +1,815 @@
+diff -ruN a/forest-layout.js b/forest-layout.js
+--- a/forest-layout.js	2026-11-02 09:35:59.000000000 +0000
++++ b/forest-layout.js	2026-11-02 17:01:31.712686611 +0000
+@@ -7,6 +7,7 @@
+ import { CITY, CITY_ZONES } from './city-layout.js';
+ import { MEADOW_CIRCLES, RUINS_CIRCLES } from './meadow-layout.js';
+ import { SAWAH_CIRCLES } from './sawah-layout.js';
++import { KEKAISARAN_CIRCLES } from './kekaisaran-layout.js';
+ 
+ // pusat & radius area hutan yang bisa dijelajahi
+ export const FOREST = { name: 'Hutan Besar', x: 100, z: 58, radius: 56 };
+@@ -74,7 +75,7 @@
+ ];
+ // area yang boleh dijelajahi pemain: kalau Gerbang Batu Kuno terbuka (CITY.open), Kota Arunika ikut masuk.
+ // (zoneDist() di bawah sengaja tetap hanya untuk hutan/desa: dipakai menata pohon, jadi kota tidak ikut ditanami pohon hutan)
+-const WALK_ZONES = CITY.open ? [...ZONES, ...CITY_ZONES, ...MEADOW_CIRCLES, ...RUINS_CIRCLES, ...SAWAH_CIRCLES] : ZONES;   // kota terbuka -> Padang Rumput Arunika (lewat Gerbang Timur) ikut bisa dijelajahi
++const WALK_ZONES = CITY.open ? [...ZONES, ...CITY_ZONES, ...MEADOW_CIRCLES, ...RUINS_CIRCLES, ...SAWAH_CIRCLES, ...KEKAISARAN_CIRCLES] : ZONES;   // kota terbuka -> Padang Rumput Arunika (lewat Gerbang Timur) ikut bisa dijelajahi
+ const FOREST_CIRCLES = [{ x: FOREST.x, z: FOREST.z, r: FOREST.radius }, ...FOREST_EXT];
+ 
+ // jarak ke tepi area tambahan: negatif = di dalam area, positif = di luar
+diff -ruN a/game.js b/game.js
+--- a/game.js	2026-11-02 09:35:59.000000000 +0000
++++ b/game.js	2026-11-02 17:01:31.714283115 +0000
+@@ -7,6 +7,7 @@
+ import { CITY, CITY_SPAWN, CHURCH, PALACE, cityDist } from './city-layout.js';
+ import { MEADOW, RUINS, MEADOW_SEG_X, meadowDist } from './meadow-layout.js';
+ import { SAWAH, KEKAISARAN, SAWAH_SPAWN, sawahDist } from './sawah-layout.js';
++import { kekaisaranDist, districtAt, DISTRICTS, GATES } from './kekaisaran-layout.js';
+ import { DUSUN } from './meadow-village-layout.js';
+ import { buildSlime, buildGoblin, slimePose, goblinPose, makeBar } from './mobs.js';
+ import { audio } from './audio.js';
+@@ -1743,14 +1744,14 @@
+   P.face = fromGolem ? RUINS_DOOR.out.face : fromHole ? Math.atan2(sp.x, sp.z) : inTown ? SAWAH_SPAWN.face : Math.atan2(-SPAWN.x, -SPAWN.z); player.rotation.y = P.face; P.v.set(0, 0, 0);
+   camYaw = P.face + Math.PI; cam.position.set(sp.x - Math.sin(P.face) * 9, 4.2, sp.z - Math.cos(P.face) * 9);
+   $('boss').hidden = true; $('wave').textContent = fromGolem ? '🏛️ ' + RUINS.name : inTown ? '🌾 ' + SAWAH.name : '🌿 Dataran Hijau'; $('obj').hidden = false; doorBusy = false; doorNear = false;
+-  inVillage = false; inForest = false; inDeepForest = false; nearAncientGate = false; inCity = false; inMeadow = false; inSawah = false; inDusun = false; nearImperialGate = false; inChurch = false; churchBusy = false; world.church.show(false); inPalace = false; palaceBusy = false; palaceArea = ''; world.palace.show(false); worldFog.density = FOG_DENSITY;
++  inVillage = false; inForest = false; inDeepForest = false; nearAncientGate = false; inCity = false; inMeadow = false; inSawah = false; inDusun = false; inKekaisaran = false; kekDistrict = -1; inChurch = false; churchBusy = false; world.church.show(false); inPalace = false; palaceBusy = false; palaceArea = ''; world.palace.show(false); worldFog.density = FOG_DENSITY;
+   if (inTown) inSawah = true;   // sudah di ladang: pesan masuk ladang tidak perlu muncul lagi
+   $('msg').textContent = note || (fromGolem ? '🏛️ ' + RUINS.name + (golemBeaten ? '\nPenjaga telah ditaklukkan' : '\nKamu selamat keluar dari Pintu Penjaga') : inTown ? '🌾 ' + SAWAH.name + '\nJalan terus ke timur menuju ' + KEKAISARAN.name + '\nKota Arunika ada di barat' : fromHole ? 'Kembali ke Dataran Hijau' : 'Dataran Hijau\nCari lubang menuju dungeon\n🏘️ ' + VILLAGE.name + ' ada di sebelah timur\n🌲 ' + FOREST.name + ' ada di timur desa');
+   wildT = 1; calmT = 0;
+   setTimeout(() => { if (state === 'world') $('msg').textContent = ''; }, 3500);
+   const f = $('fade'); f.style.transition = 'opacity .9s'; f.style.opacity = 0;
+ }
+-let inVillage = false, inForest = false, inDeepForest = false, nearAncientGate = false, inCity = false, inMeadow = false, inSawah = false, inDusun = false, nearImperialGate = false, inChurch = false, churchBusy = false, inPalace = false, palaceBusy = false, palaceArea = '';
++let inVillage = false, inForest = false, inDeepForest = false, nearAncientGate = false, inCity = false, inMeadow = false, inSawah = false, inDusun = false, inKekaisaran = false, kekDistrict = -1, inChurch = false, churchBusy = false, inPalace = false, palaceBusy = false, palaceArea = '';
+ // Masuk / keluar Katedral Arunika: layar memudar, pemain dipindah ke ruang dalam (church.js) atau kembali ke alun-alun
+ function churchGo(inside) {
+   churchBusy = true; stick.x = stick.y = 0; P.v.set(0, 0, 0);
+@@ -1823,10 +1824,15 @@
+   const sd = sawahDist(px, pz); // masuk / keluar Ladang Sawah Gemah Ripah (negatif = di dalam ladang), di balik gerbang padang
+   if (!inSawah && sd < -8) { inSawah = true; say('🌾 ' + SAWAH.name + '\nPetak sawah, saluran irigasi & gubuk tani\nJalan terus ke timur menuju ' + KEKAISARAN.name); }
+   else if (inSawah && sd > -1) inSawah = false;
+-  if (!KEKAISARAN.open) { // ujung ladang sawah: gerbang perbatasan Kota Kekaisaran masih tertutup
+-    const ie = Math.hypot(px - KEKAISARAN.x, pz - KEKAISARAN.z);
+-    if (!nearImperialGate && ie < 30) { nearImperialGate = true; say('🏯 Gerbang Perbatasan\nJalan menuju ' + KEKAISARAN.name + ' belum dibuka...'); }
+-    else if (nearImperialGate && ie > 42) nearImperialGate = false;
++  { // Kota Kekaisaran (segi lima): pesan masuk kota & nama distrik saat berpindah
++    const kd = kekaisaranDist(px, pz), dn = kd < -2 ? districtAt(px, pz) : -1;
++    if (!inKekaisaran && dn >= 0) { inKekaisaran = true; kekDistrict = -1; say('🏯 ' + KEKAISARAN.name + '\nKota segi lima dengan 5 distrik & istana di tengah\nBaru ' + DISTRICTS[0].name + ' (' + DISTRICTS[0].sub + ') yang selesai dibangun'); }
++    else if (inKekaisaran && kd > 6) inKekaisaran = false;
++    if (inKekaisaran && dn !== kekDistrict && dn >= 0) {
++      kekDistrict = dn;
++      if (dn === 0) say('👑 Halaman Istana\nTapak Istana Kekaisaran (belum dibangun)');
++      else { const d = DISTRICTS[dn - 1]; say((d.n === 1 ? '⚔️ ' : '🚧 ') + d.name + ' — ' + d.sub + (d.built ? '' : '\nSegera dibangun')); }
++    }
+   }
+   if (CITY.open && !churchBusy) { // pintu katedral (luar) & pintu keluar (dalam)
+     if (!inChurch && Math.hypot(px - CHURCH.door.x, pz - CHURCH.door.z) < CHURCH.door.r) churchGo(true);
+diff -ruN a/index.html b/index.html
+--- a/index.html	2026-11-02 09:35:59.000000000 +0000
++++ b/index.html	2026-11-02 17:01:38.002282971 +0000
+@@ -20,7 +20,7 @@
+   <div id="obj" hidden><i id="objA">▲</i><span id="objD"></span><small>🕳️ Lubang Dungeon</small></div>
+   <div id="boss" hidden><span>Malzareth, Penyihir Kegelapan</span><div class="bar"><i id="bossbar"></i></div></div>
+   <div id="pl"><b>Louis</b><div class="bar hp"><i id="hpbar"></i></div></div>
+-  <div id="help">WASD gerak · Spasi / Klik serang · Shift berguling (lari di dunia luar) · E mengobrol dengan warga · 1 2 3 4 skill · C ganti kamera · Mouse putar & naik-turun kamera 360° · Roll mouse zoom · F layar penuh · Esc pengaturan · 🌲 Di hutan ada slime & goblin liar: lawan dengan serangan & skill · 🏰 Masuk istana lewat gerbang di ujung jalan utama kota · 🌾 Gerbang Timur kota menuju Padang Rumput, lalu terus ke timur sampai Ladang Sawah</div>
++  <div id="help">WASD gerak · Spasi / Klik serang · Shift berguling (lari di dunia luar) · E mengobrol dengan warga · 1 2 3 4 skill · C ganti kamera · Mouse putar & naik-turun kamera 360° · Roll mouse zoom · F layar penuh · Esc pengaturan · 🌲 Di hutan ada slime & goblin liar: lawan dengan serangan & skill · 🏰 Masuk istana lewat gerbang di ujung jalan utama kota · 🌾 Gerbang Timur kota menuju Padang Rumput, lalu terus ke timur sampai Ladang Sawah dan Kota Kekaisaran (baru Distrik 1)</div>
+   <div id="msg">Memuat karakter...</div>
+   <button id="again" hidden>↻ Main Lagi</button>
+   <button id="exit" hidden>🌿 Keluar Dungeon</button>
+diff -ruN a/kekaisaran-layout.js b/kekaisaran-layout.js
+--- a/kekaisaran-layout.js	1970-01-01 00:00:00.000000000 +0000
++++ b/kekaisaran-layout.js	2026-11-02 12:09:47.966509516 +0000
+@@ -0,0 +1,153 @@
++// ============================================================
++//  KOTA KEKAISARAN — data tata letak (murni angka, tanpa THREE)
++//  Kota berbentuk SEGI LIMA beraturan di ujung Ladang Sawah Gemah Ripah, dikelilingi tembok dengan 5 gerbang, 5 distrik,
++//  jalan lingkar, dan istana di tengahnya (tapak istana disiapkan, bangunannya BELUM dibuat).
++//  Tahap sekarang: tembok + 5 gerbang + jalan + Distrik 1 (Military Quarter) lengkap TANPA NPC. Distrik 2-5 baru berupa lahan kosong bertanda.
++//  Dipakai oleh kekaisaran.js (isi kota), world.js (chunk), forest-layout.js (batas dunia) dan game.js (pesan masuk).
++//
++//  KERANGKA KOORDINAT KOTA (lokal): x = ke depan (searah jalan ladang, "utara" di gambar denah), z = ke kanan (sisi kanan saat menghadap timur = "timur" di gambar).
++//  Titik (0,0) = pusat istana. Gerbang Utama ada di sisi belakang (x = -APOTHEM), menghadap jalan ladang; puncak segi lima (Distrik 1) ada di ujung depan (x = +R).
++//  Sudut φ diukur dari sumbu +x ke arah +z. Distrik k berpusat pada titik sudut ke-k: φ = k·72° (Distrik 1 = 0°, 2 = 72°, 3 = 144°, 4 = 216°, 5 = 288°).
++//  Gerbang & jalan radial ada di tengah sisi: φ = (k + 0.5)·72°.
++// ============================================================
++import { SAWAH_LEN, sroadAt, KEKAISARAN } from './sawah-layout.js';
++
++export const EMPIRE = { name: KEKAISARAN.name, R: 180 };          // R = jari-jari lingkaran luar (titik sudut) segi lima
++const D2R = Math.PI / 180;
++export const R = EMPIRE.R;
++export const APOTHEM = R * Math.cos(36 * D2R);                    // jarak pusat -> tengah sisi (≈145,6 m)
++export const SIDE = 2 * R * Math.sin(36 * D2R);                   // panjang tiap sisi tembok (≈211 m)
++export const WALL = { t: 3.8, h: 9.5, towerR: 5.6, towerH: 16 };  // tembok: tebal, tinggi; menara di tiap titik sudut
++export const RING = { r: 66, w: 9 };                              // jalan lingkar mengelilingi istana
++export const PLAZA_R = 58;                                        // lantai batu di dalam jalan lingkar (halaman istana)
++export const PALACE_SITE = { r: 36 };                             // tapak istana (belum dibangun)
++export const ROAD_W = 9;                                          // lebar jalan radial ke gerbang samping
++export const AVENUE_W = 15;                                       // lebar jalan raya Gerbang Utama -> istana
++export const GATES = [   // gerbang di tengah sisi k (sisi k = antara titik sudut k dan k+1)
++  { k: 0, id: 'timur-laut', name: 'Gerbang Timur Laut', gap: 8,  open: false },
++  { k: 1, id: 'timur',      name: 'Gerbang Timur',      gap: 8,  open: false },
++  { k: 2, id: 'utama',      name: 'Gerbang Utama',      gap: 11, open: true  },
++  { k: 3, id: 'barat',      name: 'Gerbang Barat',      gap: 8,  open: false },
++  { k: 4, id: 'barat-laut', name: 'Gerbang Barat Laut', gap: 8,  open: false },
++].map(g => { const psi = (g.k + 0.5) * 72 * D2R; return { ...g, psi, x: APOTHEM * Math.cos(psi), z: APOTHEM * Math.sin(psi) }; });
++
++export const DISTRICTS = [
++  { n: 1, id: 'militer',    name: 'Distrik 1', sub: 'Military Quarter',       built: true  },
++  { n: 2, id: 'pedagang',   name: 'Distrik 2', sub: 'Merchant Quarter',       built: false },
++  { n: 3, id: 'bangsawan',  name: 'Distrik 3', sub: 'Noble Quarter',          built: false },
++  { n: 4, id: 'akademi',    name: 'Distrik 4', sub: 'Academy Quarter',        built: false },
++  { n: 5, id: 'administrasi', name: 'Distrik 5', sub: 'Administration Quarter', built: false },
++];
++export const VERTS = [0, 1, 2, 3, 4].map(k => ({ x: R * Math.cos(k * 72 * D2R), z: R * Math.sin(k * 72 * D2R) }));
++
++// ---------- Penempatan di dunia ----------
++// Jalan ladang berakhir di E; Gerbang Utama ada 24 m di depannya, pusat kota APOTHEM di depan gerbang.
++const E = sroadAt(SAWAH_LEN), FWD = { x: E.tx, z: E.tz }, RGT = { x: -E.tz, z: E.tx };
++export const GATE_OFFSET = 24;
++export const EMPIRE_C = { x: E.x + FWD.x * (GATE_OFFSET + APOTHEM), z: E.z + FWD.z * (GATE_OFFSET + APOTHEM) };
++export const EMPIRE_YAW = Math.atan2(-FWD.z, FWD.x);               // rotation.y grup kota: sumbu-x lokal = ke depan, sumbu-z lokal = ke kanan
++export const EMPIRE_E = { x: E.x, z: E.z, tx: E.tx, tz: E.tz };    // ujung jalan ladang
++export const toWorld = (lx, lz) => ({ x: EMPIRE_C.x + FWD.x * lx + RGT.x * lz, z: EMPIRE_C.z + FWD.z * lx + RGT.z * lz });
++export const toLocal = (x, z) => { const dx = x - EMPIRE_C.x, dz = z - EMPIRE_C.z; return { x: dx * FWD.x + dz * FWD.z, z: dx * RGT.x + dz * RGT.z }; };
++export const MAIN_GATE_WORLD = (() => { const g = GATES[2], p = toWorld(g.x, g.z); return { x: p.x, z: p.z, tx: FWD.x, tz: FWD.z }; })();
++
++// ---------- Area jelajah (lingkaran, dunia) ----------
++// Lingkaran pusat memuat hampir seluruh segi lima; lingkaran kecil mengisi sudut-sudutnya; koridor dari ujung ladang sampai Gerbang Utama.
++export const KEKAISARAN_CIRCLES = [];
++{
++  const inset = WALL.t / 2 + 0.5;
++  const add = (lx, lz, r) => { const p = toWorld(lx, lz); KEKAISARAN_CIRCLES.push({ x: p.x, z: p.z, r }); };
++  add(0, 0, APOTHEM - inset);
++  for (let k = 0; k < 5; k++) {
++    const a = k * 72 * D2R;
++    for (const d of [104, 128, 150]) add(d * Math.cos(a), d * Math.sin(a), APOTHEM - d * Math.cos(36 * D2R) - inset);
++  }
++  for (const s of [-34, -20, -8]) { const p = sroadAt(SAWAH_LEN + s); KEKAISARAN_CIRCLES.push({ x: p.x, z: p.z, r: 20 }); }   // koridor (menyambung dengan lingkaran ujung ladang)
++  { const g = GATES[2], p = toWorld(g.x, g.z); KEKAISARAN_CIRCLES.push({ x: p.x, z: p.z, r: 12 }); }
++  { const g = GATES[2], p = toWorld(g.x - GATE_OFFSET / 2, g.z); KEKAISARAN_CIRCLES.push({ x: p.x, z: p.z, r: 14 }); }
++}
++export function kekaisaranDist(x, z) {   // negatif = di dalam area jelajah kota
++  let m = Infinity;
++  for (let i = 0; i < KEKAISARAN_CIRCLES.length; i++) { const c = KEKAISARAN_CIRCLES[i], d = Math.hypot(x - c.x, z - c.z) - c.r; if (d < m) m = d; }
++  return m;
++}
++// apakah titik dunia berada di dalam tembok (segi lima)
++export function insideWalls(x, z, inset = 0) {
++  const p = toLocal(x, z); return insidePoly(p.x, p.z, inset);
++}
++export function insidePoly(lx, lz, inset = 0) {
++  for (let k = 0; k < 5; k++) { const psi = (k + 0.5) * 72 * D2R; if (lx * Math.cos(psi) + lz * Math.sin(psi) > APOTHEM - inset) return false; }
++  return true;
++}
++// nomor distrik (1..5) tempat titik dunia berada; 0 = halaman istana / jalan lingkar; -1 = di luar tembok
++export function districtAt(x, z) {
++  const p = toLocal(x, z); if (!insidePoly(p.x, p.z, 0)) return -1;
++  if (Math.hypot(p.x, p.z) < RING.r + RING.w / 2 + 1) return 0;
++  let a = Math.atan2(p.z, p.x) / D2R; if (a < 0) a += 360;
++  return (Math.round(a / 72) % 5) + 1;
++}
++
++// ============================================================
++//  DISTRIK 1 — MILITARY QUARTER (kerangka lokal)
++//  Wilayah: baji antara jalan radial Gerbang Barat Laut (φ = -36°) dan Gerbang Timur Laut (φ = +36°), dari jalan lingkar sampai tembok.
++// ============================================================
++const T36 = Math.tan(36 * D2R);
++// jarak (m) titik ke garis tengah jalan radial φ (tanda: + = sisi searah +z dari garis)
++const radialSigned = (x, z, deg) => { const a = deg * D2R; return -x * Math.sin(a) + z * Math.cos(a); };
++// titik (x,z) lokal ada di wilayah dalam Distrik 1 dengan jarak aman `m` dari jalan radial, jalan lingkar, dan tembok?
++export function inD1(x, z, m = 0) {
++  if (!insidePoly(x, z, WALL.t / 2 + 0.4 + m)) return false;
++  if (Math.hypot(x, z) < RING.r + RING.w / 2 + m) return false;
++  if (radialSigned(x, z, 36) > -(ROAD_W / 2 + m)) return false;      // sisi NE jalan radial +36°
++  if (radialSigned(x, z, -36) < (ROAD_W / 2 + m)) return false;      // sisi NW jalan radial -36°
++  return true;
++}
++
++export const D1 = {
++  avenue: { w: 11, x0: RING.r, x1: 150 },                            // jalan utama dari jalan lingkar ke lapangan apel (di sumbu x)
++  parade: { x: 120, z: 0, w: 36, d: 56 },                            // lapangan apel (batu): w = panjang searah x, d = lebar searah z
++  canal:  { x0: 78, x1: 99, off: 7.4, w: 1.5 },                      // dua saluran air di tepi jalan utama (z = ±off), jembatan batu di tengahnya
++  hq:     { id: 'markas', kind: 'hq', name: 'Markas Komando', x: 157, z: 0, w: 26, d: 12, face: Math.PI },
++  buildings: [
++    { id: 'barak-1', kind: 'barracks', name: 'Barak Pasukan I',   x: 106, z: -50, w: 22, d: 11, face:  Math.PI / 2 },
++    { id: 'barak-2', kind: 'barracks', name: 'Barak Pasukan II',  x: 106, z:  50, w: 22, d: 11, face: -Math.PI / 2 },
++    { id: 'barak-3', kind: 'barracks', name: 'Barak Pasukan III', x: 130, z: -40, w: 20, d: 11, face:  Math.PI / 2 },
++    { id: 'barak-4', kind: 'barracks', name: 'Barak Pasukan IV',  x: 130, z:  40, w: 20, d: 11, face: -Math.PI / 2 },
++    { id: 'gudang',  kind: 'armory',   name: 'Gudang Senjata',    x: 146, z:  24, w: 12, d: 9,  face: Math.PI },
++    { id: 'kandang', kind: 'stable',   name: 'Kandang Kuda',      x: 146, z: -24, w: 12, d: 9,  face: Math.PI },
++    { id: 'tempa',   kind: 'smithy',   name: 'Pandai Besi',       x: 112, z: -62, w: 9,  d: 8,  face:  Math.PI / 2 },
++    { id: 'perwira', kind: 'officers', name: 'Rumah Perwira',     x: 112, z:  62, w: 14, d: 9,  face: -Math.PI / 2 },
++  ],
++  yards: [   // lapangan terbuka berpagar (tanpa atap): latihan pedang & memanah
++    { id: 'latihan', kind: 'training', name: 'Lapangan Latihan', x: 85, z: -35, w: 17, d: 17 },
++    { id: 'panah',   kind: 'archery',  name: 'Lapangan Panah',   x: 85, z:  35, w: 17, d: 17 },
++  ],
++  posts: [   // pos jaga bundar di pintu masuk distrik
++    { x: 80, z: -14, r: 2.8 }, { x: 80, z: 14, r: 2.8 },
++  ],
++};
++// semua jejak bangunan (untuk uji tabrakan & tabrakan pemain): persegi berputar {x,z,w,d,face} atau lingkaran {x,z,r}
++export const D1_FOOTPRINTS = [
++  { ...D1.hq }, ...D1.buildings, ...D1.yards.map(y => ({ ...y, face: 0, yard: true })),
++  ...D1.posts.map(p => ({ x: p.x, z: p.z, r: p.r })),
++];
++// sudut-sudut persegi berputar: depan bangunan = arah `face` (sudut dari +x ke +z), lebar w tegak lurus arah depan, kedalaman d searah depan
++export function rectCorners(f, pad = 0) {
++  const fx = Math.cos(f.face || 0), fz = Math.sin(f.face || 0), sx = -fz, sz = fx, hw = f.w / 2 + pad, hd = f.d / 2 + pad;
++  // catatan: untuk bangunan w = sisi panjang (lebar fasad). Untuk lapangan (face 0) w = searah x, d = searah z.
++  if (f.yard) return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => [f.x + a * hw, f.z + b * hd]);
++  return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => [f.x + sx * a * hw + fx * b * hd, f.z + sz * a * hw + fz * b * hd]);
++}
++// titik lokal (x,z) berada di dalam / dekat jejak bangunan apa pun di Distrik 1 (pad = jarak aman)
++export function d1Blocked(x, z, pad = 0) {
++  for (const f of D1_FOOTPRINTS) {
++    if (f.r) { if (Math.hypot(x - f.x, z - f.z) < f.r + pad) return true; continue; }
++    const fx = Math.cos(f.face || 0), fz = Math.sin(f.face || 0), dx = x - f.x, dz = z - f.z;
++    if (f.yard) { if (Math.abs(dx) < f.w / 2 + pad && Math.abs(dz) < f.d / 2 + pad) return true; continue; }
++    const along = dx * -fz + dz * fx, front = dx * fx + dz * fz;   // along = sepanjang fasad (lebar), front = searah depan
++    if (Math.abs(along) < f.w / 2 + pad && Math.abs(front) < f.d / 2 + pad) return true;
++  }
++  const p = D1.parade; if (Math.abs(x - p.x) < p.w / 2 + pad && Math.abs(z - p.z) < p.d / 2 + pad) return true;
++  if (x < D1.avenue.x1 + pad && Math.abs(z) < D1.avenue.w / 2 + 3.5 + pad) return true;   // jalan utama + saluran
++  return false;
++}
+diff -ruN a/kekaisaran.js b/kekaisaran.js
+--- a/kekaisaran.js	1970-01-01 00:00:00.000000000 +0000
++++ b/kekaisaran.js	2026-11-02 12:14:25.928129895 +0000
+@@ -0,0 +1,486 @@
++import * as THREE from 'three';
++import { APOTHEM, SIDE, WALL, RING, PLAZA_R, PALACE_SITE, ROAD_W, AVENUE_W, GATES, DISTRICTS, VERTS, EMPIRE_C, EMPIRE_YAW, GATE_OFFSET, toWorld, D1, d1Blocked, inD1, insidePoly } from './kekaisaran-layout.js';
++
++// ============================================================
++//  Membangun Kota Kekaisaran (satu chunk, dipanggil dari world.js).
++//  Isi: tembok segi lima + 5 menara sudut + 5 gerbang (Gerbang Utama terbuka, 4 lainnya tertutup), jalan lingkar & 5 jalan radial,
++//  jalan raya Gerbang Utama (saluran air + jembatan), halaman & tapak istana (BELUM ada istananya), dan DISTRIK 1 — Military Quarter
++//  (lapangan apel, markas komando, 4 barak, gudang senjata, kandang, pandai besi, rumah perwira, 2 lapangan latihan, pagar kayu, saluran air).
++//  Distrik 2-5: lahan kosong bertanda patok + papan "segera dibangun". TIDAK ADA NPC.
++//
++//  Semua mesh dibuat di kerangka lokal kota (grup `city`): sumbu-x = ke depan (searah jalan ladang), sumbu-z = ke kanan, pusat istana = (0,0).
++//  Collider (lingkaran) dimasukkan ke koordinat DUNIA lewat toWorld().
++//  Generator: tiap `yield` = titik berhenti (ChunkManager melanjutkannya di frame berikutnya).
++// ============================================================
++
++const D2R = Math.PI / 180;
++
++export function* buildKekaisaranGen(o) {
++  const { colliders, rand, COARSE, geo, mat } = o;
++  const Rn = (a, b) => a + rand() * (b - a);
++  const group = new THREE.Group(); group.name = 'kekaisaran';
++  const city = new THREE.Group(); city.position.set(EMPIRE_C.x, 0, EMPIRE_C.z); city.rotation.y = EMPIRE_YAW; group.add(city);
++  const dummy = new THREE.Object3D(), tmpC = new THREE.Color();
++  const col = (lx, lz, r) => { const p = toWorld(lx, lz); colliders.push({ x: p.x, z: p.z, r }); };   // collider dunia dari koordinat lokal kota
++
++  // ---------- Tekstur (digambar lewat canvas, tanpa file gambar) ----------
++  const ctex = (size, draw, w = size, h = size) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
++  const noise = (x, s, n, c0, c1, a) => { for (let i = 0; i < n; i++) { const g = c0 + Math.random() * (c1 - c0) | 0; x.fillStyle = `rgba(${g},${g - 4},${g - 12},${a})`; x.fillRect(Math.random() * s, Math.random() * s, 1 + Math.random() * 3, 1 + Math.random() * 3); } };
++  const T = {
++    cobble: ctex(256, (x, s) => { x.fillStyle = '#6f6a60'; x.fillRect(0, 0, s, s); for (let r = 0; r < 8; r++) for (let c = -1; c < 9; c++) { const g = 138 + Math.random() * 46 | 0; x.fillStyle = `rgb(${g},${g - 6},${g - 18})`; x.fillRect(c * 32 + (r % 2) * 16 + 1.5, r * 32 + 1.5, 29, 29); } noise(x, s, 600, 90, 200, 0.25); }),
++    slab: ctex(256, (x, s) => { x.fillStyle = '#9a937f'; x.fillRect(0, 0, s, s); for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) { const g = 196 + Math.random() * 18 | 0; x.fillStyle = `rgb(${g},${g - 6},${g - 20})`; x.fillRect(c * 128 + 2, r * 128 + 2, 124, 124); } noise(x, s, 900, 150, 230, 0.22); }),
++    stone: ctex(128, (x, s) => { x.fillStyle = '#85806f'; x.fillRect(0, 0, s, s); for (let r = 0; r < 6; r++) { const off = (r % 2) * 20; for (let c = -1; c < 4; c++) { const g = 178 + Math.random() * 30 | 0; x.fillStyle = `rgb(${g},${g - 6},${g - 16})`; x.fillRect(c * 40 + off + 1, r * (s / 6) + 1, 38, s / 6 - 2); } } noise(x, s, 300, 120, 220, 0.2); }),
++    roof: ctex(128, (x, s) => { x.fillStyle = '#9fa6b8'; x.fillRect(0, 0, s, s); for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) { const g = 215 + Math.random() * 30 | 0; x.fillStyle = `rgb(${g},${g},${g + 8})`; x.beginPath(); x.moveTo(c * 16 + (r % 2) * 8, r * 16); x.lineTo(c * 16 + (r % 2) * 8 + 16, r * 16); x.lineTo(c * 16 + (r % 2) * 8 + 16, r * 16 + 11); x.arc(c * 16 + (r % 2) * 8 + 8, r * 16 + 11, 8, 0, Math.PI); x.closePath(); x.fill(); } }),
++    sand: ctex(128, (x, s) => { x.fillStyle = '#c4aa72'; x.fillRect(0, 0, s, s); noise(x, s, 1400, 150, 235, 0.3); }),
++    water: ctex(128, (x, s) => { x.fillStyle = '#2f7db3'; x.fillRect(0, 0, s, s); for (let i = 0; i < 26; i++) { x.fillStyle = `rgba(190,230,250,${0.15 + Math.random() * 0.25})`; x.fillRect(Math.random() * s, Math.random() * s, 10 + Math.random() * 30, 2); } }),
++    target: ctex(128, (x, s) => { [['#f3ead0', 64], ['#26356e', 52], ['#f3ead0', 40], ['#b8322a', 28], ['#e8c14a', 12]].forEach(([c, r]) => { x.fillStyle = c; x.beginPath(); x.arc(s / 2, s / 2, r, 0, 7); x.fill(); }); }),
++    emblem: ctex(256, (x, s) => { x.fillStyle = '#1d3266'; x.beginPath(); x.arc(s / 2, s / 2, s / 2, 0, 7); x.fill(); x.strokeStyle = '#d9b24a'; x.lineWidth = 10; x.beginPath(); x.arc(s / 2, s / 2, s / 2 - 12, 0, 7); x.stroke(); x.lineWidth = 3; x.beginPath(); x.arc(s / 2, s / 2, s / 2 - 34, 0, 7); x.stroke(); swords(x, s / 2, s / 2, 78, '#e7c862'); }),
++  };
++  function swords(x, cx, cy, L, c) {   // dua pedang bersilang
++    x.save(); x.translate(cx, cy); x.strokeStyle = c; x.fillStyle = c; x.lineCap = 'round';
++    for (const sg of [-1, 1]) { x.save(); x.rotate(sg * Math.PI / 4); x.lineWidth = L * 0.11; x.beginPath(); x.moveTo(0, -L); x.lineTo(0, L * 0.55); x.stroke(); x.lineWidth = L * 0.1; x.beginPath(); x.moveTo(-L * 0.3, L * 0.38); x.lineTo(L * 0.3, L * 0.38); x.stroke(); x.beginPath(); x.arc(0, L * 0.72, L * 0.09, 0, 7); x.fill(); x.restore(); }
++    x.restore();
++  }
++  function crown(x, cx, cy, L, c) { x.fillStyle = c; x.beginPath(); x.moveTo(cx - L, cy + L * 0.6); x.lineTo(cx - L, cy - L * 0.2); x.lineTo(cx - L * 0.5, cy + L * 0.15); x.lineTo(cx, cy - L * 0.6); x.lineTo(cx + L * 0.5, cy + L * 0.15); x.lineTo(cx + L, cy - L * 0.2); x.lineTo(cx + L, cy + L * 0.6); x.closePath(); x.fill(); }
++  const bannerTex = kind => ctex(128, (x, w, h) => {
++    x.fillStyle = kind === 'palace' ? '#4a2a78' : '#1f3770'; x.fillRect(0, 0, w, h); x.strokeStyle = '#d9b24a'; x.lineWidth = 8; x.strokeRect(6, 6, w - 12, h - 12);
++    if (kind === 'sword') swords(x, w / 2, h * 0.42, 34, '#e7c862'); else crown(x, w / 2, h * 0.42, 32, '#e7c862');
++    x.fillStyle = '#d9b24a'; x.beginPath(); x.moveTo(8, h - 8); x.lineTo(w / 2, h - 52); x.lineTo(w - 8, h - 8); x.lineTo(w - 8, h - 24); x.lineTo(w / 2, h - 70); x.lineTo(8, h - 24); x.closePath(); x.fill();
++  }, 128, 256);
++  const plaqueTex = (text, sub) => ctex(512, (x, w, h) => {
++    x.fillStyle = '#6b4a2a'; x.fillRect(0, 0, w, h); for (let i = 0; i < 120; i++) { x.fillStyle = `rgba(40,22,8,${Math.random() * 0.25})`; x.fillRect(0, Math.random() * h, w, 1 + Math.random() * 2); }
++    x.strokeStyle = '#d9b24a'; x.lineWidth = 6; x.strokeRect(8, 8, w - 16, h - 16); x.fillStyle = '#f3e3bd'; x.textAlign = 'center'; x.textBaseline = 'middle';
++    let fs = sub ? 54 : 64; x.font = `bold ${fs}px Georgia`; while (x.measureText(text).width > w - 50 && fs > 20) x.font = `bold ${fs -= 2}px Georgia`;
++    x.fillText(text, w / 2, sub ? h * 0.38 : h / 2); if (sub) { x.fillStyle = '#e3c98a'; x.font = 'bold 34px Georgia'; x.fillText(sub, w / 2, h * 0.74); }
++  }, 512, 128);
++
++  // ---------- Material bersama ----------
++  const stdC = new Map(), std = (color, extra) => { if (extra) return new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true, ...extra }); let m = stdC.get(color); if (!m) stdC.set(color, m = new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true })); return m; };
++  const tm = (map, color = 0xffffff, extra = {}) => new THREE.MeshStandardMaterial({ map, color, roughness: 1, ...extra });
++  const M = {
++    wall: tm(T.stone, 0xcfc8b6), tower: tm(T.stone, 0xc2bbaa), plinth: tm(T.stone, 0xa9a292), hall: tm(T.stone, 0xd8d0bc),
++    roofBlue: tm(T.roof, 0x3555b0, { side: THREE.DoubleSide }), roofDark: tm(T.roof, 0x2b3c6e, { side: THREE.DoubleSide }), roofRed: tm(T.roof, 0x9c4a3a, { side: THREE.DoubleSide }),
++    plaster: std(0xe2d9c0), plasterGrey: std(0xc6c0b0), timber: std(0x5b3d22), wood: std(0x8b6338), woodDark: std(0x4f3420), iron: std(0x2f2f35), gold: std(0xd9b24a),
++    straw: std(0xcdae55), sandy: std(0xb99a4e), rope: std(0xa68b52),
++    lantern: new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffa83a, emissiveIntensity: 0.9, roughness: 0.6, flatShading: true }),
++    glow: new THREE.MeshStandardMaterial({ color: 0xff9a3a, emissive: 0xff6a1a, emissiveIntensity: 1.3, roughness: 0.6, flatShading: true }),
++    window: new THREE.MeshStandardMaterial({ color: 0x31405e, emissive: 0xffc46a, emissiveIntensity: 0.55, roughness: 0.4 }),
++    cobble: tm(T.cobble, 0xffffff, { side: THREE.DoubleSide, polygonOffset: true }), slab: tm(T.slab, 0xffffff, { side: THREE.DoubleSide, polygonOffset: true }),
++    slabDark: tm(T.slab, 0x9aa4c0, { side: THREE.DoubleSide, polygonOffset: true }), sand: tm(T.sand, 0xffffff, { side: THREE.DoubleSide, polygonOffset: true }),
++    water: new THREE.MeshStandardMaterial({ map: T.water, roughness: 0.12, metalness: 0.05, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 }),
++    waterFloor: new THREE.MeshStandardMaterial({ color: 0x4d5d70, roughness: 1 }),
++  };
++  const levelMat = (() => { const cache = new Map(); return (m, lvl) => { const k = m.uuid + ':' + lvl; let c = cache.get(k); if (!c) { c = m.clone(); c.polygonOffset = true; c.polygonOffsetFactor = -lvl; c.polygonOffsetUnits = -lvl; cache.set(k, c); } return c; }; })();
++
++  // ---------- Geometri & pembantu ----------
++  const box = (w, h, d) => new THREE.BoxGeometry(w, h, d), cyl = (a, b, h, n = 8) => new THREE.CylinderGeometry(a, b, h, n);
++  function boxUV(w, h, d, s = 0.5) {   // kotak dengan UV dalam satuan meter (tekstur tidak melar)
++    const g = new THREE.BoxGeometry(w, h, d), uv = g.attributes.uv, n = g.attributes.normal;
++    for (let i = 0; i < uv.count; i++) { const ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i)); const [a, b] = ax > 0.5 ? [d, h] : ay > 0.5 ? [w, d] : [w, h]; uv.setXY(i, uv.getX(i) * a * s, uv.getY(i) * b * s); }
++    return g;
++  }
++  const scaleUV = (g, su, sv = su) => { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv); return g; };
++  const mesh = (g, m, x = 0, y = 0, z = 0, parent = city, shadow = true) => { const k = new THREE.Mesh(g, m); k.position.set(x, y, z); k.castShadow = shadow; k.receiveShadow = true; parent.add(k); return k; };
++  const worldUV = (g, s) => { const p = g.attributes.position, uv = new Float32Array(p.count * 2); for (let i = 0; i < p.count; i++) { uv[i * 2] = p.getX(i) * s; uv[i * 2 + 1] = p.getZ(i) * s; } g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); return g; };
++  const upNormals = g => { const n = new Float32Array(g.attributes.position.count * 3); for (let i = 0; i < n.length; i += 3) n[i + 1] = 1; g.setAttribute('normal', new THREE.BufferAttribute(n, 3)); return g; };
++  // dekal datar: poligon (daftar [x,z] lokal) / persegi panjang berputar / cincin / cakram
++  function decalPoly(pts, m, lvl, uvs = 0.3) {
++    const pos = [], idx = []; pts.forEach(([x, z]) => pos.push(x, 0, z));
++    for (let i = 1; i < pts.length - 1; i++) idx.push(0, i, i + 1);
++    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); upNormals(g); worldUV(g, uvs);
++    const k = new THREE.Mesh(g, levelMat(m, lvl)); k.position.y = 0.02 + lvl * 0.004; k.receiveShadow = true; city.add(k); return k;
++  }
++  function decalStrip(x0, z0, x1, z1, w, m, lvl, uvs = 0.3) {   // jalur lurus selebar w dari (x0,z0) ke (x1,z1)
++    const dx = x1 - x0, dz = z1 - z0, l = Math.hypot(dx, dz) || 1, nx = -dz / l * w / 2, nz = dx / l * w / 2;
++    return decalPoly([[x0 + nx, z0 + nz], [x1 + nx, z1 + nz], [x1 - nx, z1 - nz], [x0 - nx, z0 - nz]], m, lvl, uvs);
++  }
++  function decalRect(cx, cz, w, d, m, lvl, uvs = 0.3) { return decalPoly([[cx - w / 2, cz - d / 2], [cx + w / 2, cz - d / 2], [cx + w / 2, cz + d / 2], [cx - w / 2, cz + d / 2]], m, lvl, uvs); }
++  function decalRing(r0, r1, m, lvl, uvs = 0.3, seg = 96) { const g = new THREE.RingGeometry(r0, r1, seg, 1).rotateX(-Math.PI / 2); worldUV(g, uvs); const k = new THREE.Mesh(g, levelMat(m, lvl)); k.position.y = 0.02 + lvl * 0.004; k.receiveShadow = true; city.add(k); return k; }
++  function decalDisc(cx, cz, r, m, lvl, uvs = 0.3, seg = 64) { const g = new THREE.CircleGeometry(r, seg).rotateX(-Math.PI / 2).translate(cx, 0, cz); worldUV(g, uvs); const k = new THREE.Mesh(g, levelMat(m, lvl)); k.position.y = 0.02 + lvl * 0.004; k.receiveShadow = true; city.add(k); return k; }
++  const place = (x, z, face, parent = city) => { const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = Math.PI / 2 - face; parent.add(g); return g; };   // bangunan: sumbu-z lokal = arah depan (face)
++  const plaque = (g, text, sub, x, y, z, w, h, ry = 0) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: plaqueTex(text, sub), roughness: 1 })); m.position.set(x, y, z); m.rotation.y = ry; g.add(m); return m; };
++  const bannerMats = {}; const banner = (g, kind, x, y, z, w, h, ry = 0) => { const m = bannerMats[kind] || (bannerMats[kind] = new THREE.MeshStandardMaterial({ map: bannerTex(kind), roughness: 1, side: THREE.DoubleSide })); const b = new THREE.Mesh(new THREE.PlaneGeometry(w, h), m); b.position.set(x, y, z); b.rotation.y = ry; b.castShadow = true; g.add(b); return b; };
++  const lamp = (x, z) => { const l = new THREE.Group(); l.position.set(x, 0, z); city.add(l); mesh(cyl(0.07, 0.1, 2.6, 6), M.timber, 0, 1.3, 0, l); mesh(box(0.3, 0.38, 0.3), M.lantern, 0, 2.75, 0, l, false); mesh(box(0.44, 0.08, 0.44), M.timber, 0, 2.99, 0, l); col(x, z, 0.22); };
++  const crenelRing = (g, r, y, n, s = 1.2) => { for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; mesh(box(s, 1.0, s), M.tower, Math.cos(a) * r, y + 0.5, Math.sin(a) * r, g).rotation.y = -a; } };
++  const colRect = (f, pad = 0.25) => {   // collider persegi berputar: deretan lingkaran sepanjang sisi panjang
++    const fx = Math.cos(f.face), fz = Math.sin(f.face), r = Math.min(f.w, f.d) / 2 + pad, L = Math.max(f.w, f.d) / 2 - r, alongW = f.w >= f.d;
++    const ax = alongW ? -fz : fx, az = alongW ? fx : fz;
++    if (L <= 0) { col(f.x, f.z, Math.hypot(f.w, f.d) / 2); return; }
++    for (let a = -L; a < L; a += r * 1.15) col(f.x + ax * a, f.z + az * a, r); col(f.x + ax * L, f.z + az * L, r);
++  };
++
++  // ---------- Papan petunjuk ----------
++  function signTex(rows) {
++    return ctex(512, (x, W, H) => {
++      x.fillStyle = '#8b6338'; x.fillRect(0, 0, W, H); for (let i = 0; i < 160; i++) { x.fillStyle = `rgba(60,35,15,${Math.random() * 0.25})`; x.fillRect(0, Math.random() * H, W, 1 + Math.random() * 2); }
++      x.strokeStyle = '#4a2f18'; x.lineWidth = 10; x.strokeRect(5, 5, W - 10, H - 10); x.textAlign = 'center'; x.textBaseline = 'middle';
++      const rh = (H - 12) / rows.length; rows.forEach((r, i) => { const cy = 6 + rh * (i + 0.5); x.fillStyle = '#f3e3bd'; let fs = r.sub ? 46 : 58; x.font = `bold ${fs}px Georgia`; while (x.measureText(r.text).width > W - 60 && fs > 18) x.font = `bold ${fs -= 2}px Georgia`; x.fillText(r.text, W / 2, r.sub ? cy - 22 : cy); if (r.sub) { x.fillStyle = '#e3c98a'; x.font = 'bold 30px Georgia'; x.fillText(r.sub, W / 2, cy + 24); } if (i < rows.length - 1) { x.fillStyle = 'rgba(60,35,15,.6)'; x.fillRect(22, 6 + rh * (i + 1) - 2, W - 44, 4); } });
++    }, 512, 256);
++  }
++  function signPost(x, z, fx, fz, rows, scale = 1, w = 2.4, h = 1.2) {   // papan menghadap titik (fx,fz) (koordinat lokal kota)
++    const yaw = Math.atan2(fx - x, fz - z), front = new THREE.MeshStandardMaterial({ map: signTex(rows), roughness: 1 });
++    const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = yaw; g.scale.setScalar(scale); city.add(g);
++    mesh(cyl(0.07, 0.09, 2.5, 8), M.timber, 0, 1.25, 0, g);
++    const b = new THREE.Mesh(box(w, h, 0.1), [M.wood, M.wood, M.wood, M.wood, front, M.wood]); b.position.set(0, 2.1, 0.08); b.castShadow = true; g.add(b);
++    mesh(box(w + 0.2, 0.08, 0.16), M.timber, 0, 2.1 + h / 2 + 0.05, 0.08, g); col(x, z, 0.3 * scale);
++  }
++
++  // ---------- Jalan & lantai (dekal) ----------
++  const GATE_MAIN = GATES[2];
++  // 1) tapak istana + halaman
++  decalDisc(0, 0, PLAZA_R, M.slab, 1, 0.16, 72);
++  decalDisc(0, 0, PALACE_SITE.r, M.slabDark, 2, 0.16, 64);
++  decalRing(PALACE_SITE.r - 1.4, PALACE_SITE.r, M.slab, 3, 0.2, 64);
++  decalRing(RING.r - RING.w / 2, RING.r + RING.w / 2, M.cobble, 2, 0.33, 120);
++  // 2) jalan radial ke gerbang samping + jalan raya Gerbang Utama
++  for (const g of GATES) {
++    const dx = Math.cos(g.psi), dz = Math.sin(g.psi), w = g.k === 2 ? AVENUE_W : ROAD_W;
++    decalStrip(dx * (RING.r - 3), dz * (RING.r - 3), dx * (APOTHEM + 3), dz * (APOTHEM + 3), w, M.cobble, 3, 0.33);
++  }
++  decalStrip(-APOTHEM, 0, -APOTHEM - GATE_OFFSET, 0, GATE_MAIN.gap + 3, M.cobble, 3, 0.33);   // apron di luar Gerbang Utama (menyambung ke jalan ladang)
++  yield;
++
++  // ---------- TEMBOK, MENARA, GERBANG ----------
++  const crenelM = [], crenelG = box(1.5, 1.2, 1.0);
++  function wallSeg(ax, az, bx, bz) {
++    const dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz); if (L < 1) return;
++    const ang = Math.atan2(dz, dx), mx = (ax + bx) / 2, mz = (az + bz) / 2, ux = dx / L, uz = dz / L, nx = -uz, nz = ux;
++    const w = mesh(boxUV(L, WALL.h, WALL.t, 0.5), M.wall, mx, WALL.h / 2, mz); w.rotation.y = -ang;
++    const cap = mesh(box(L, 0.4, WALL.t + 0.5), M.plinth, mx, WALL.h + 0.2, mz); cap.rotation.y = -ang;
++    for (let s = 1.3; s < L - 0.6; s += 2.7) for (const sd of [-1, 1]) {   // gigi tembok di tepi luar & dalam
++      const px = ax + ux * s + nx * sd * (WALL.t / 2 + 0.1), pz = az + uz * s + nz * sd * (WALL.t / 2 + 0.1);
++      dummy.position.set(px, WALL.h + 0.4 + 0.6, pz); dummy.rotation.set(0, -ang, 0); dummy.scale.set(1, 1, 0.8); dummy.updateMatrix(); crenelM.push(dummy.matrix.clone());
++    }
++    for (let s = 0; s <= L; s += 2.2) col(ax + ux * s, az + uz * s, WALL.t / 2 + 0.25);
++    col(bx, bz, WALL.t / 2 + 0.25);
++  }
++  function roundTower(g, r, h, roofH, roofMat) {
++    scaleUV(mesh(cyl(r, r + 0.5, h, 14), M.tower, 0, h / 2, 0, g).geometry, Math.PI * r, h * 0.5);
++    mesh(cyl(r + 0.7, r + 0.7, 0.5, 14), M.plinth, 0, h + 0.1, 0, g); crenelRing(g, r + 0.25, h + 0.35, 12, 1.5);
++    mesh(new THREE.ConeGeometry(r + 0.6, roofH, 14), roofMat, 0, h + 0.4 + roofH / 2, 0, g);
++    mesh(cyl(0.06, 0.06, 3.2, 6), M.gold, 0, h + roofH + 1.6, 0, g, false);
++    for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + 0.6; mesh(new THREE.PlaneGeometry(0.5, 1.5), M.window, Math.cos(a) * (r + 0.52), h * 0.62, Math.sin(a) * (r + 0.52), g, false).rotation.y = Math.PI / 2 - a; }
++  }
++  // menara di tiap titik sudut
++  VERTS.forEach((v, k) => {
++    const g = new THREE.Group(); g.position.set(v.x, 0, v.z); city.add(g);
++    roundTower(g, WALL.towerR, WALL.towerH, 8.5, M.roofBlue);
++    banner(g, k === 0 ? 'sword' : 'crown', 0.85, WALL.towerH + 8.9 + 2.0, 0, 1.5, 0.85, 0);
++    col(v.x, v.z, WALL.towerR + 0.5);
++  });
++  // gerbang: gerbang lokal (x = keluar, z = menyusuri tembok)
++  function archShape(w, h, holeHW, holeH) {
++    const s = new THREE.Shape(); s.moveTo(-w / 2, 0); s.lineTo(w / 2, 0); s.lineTo(w / 2, h); s.lineTo(-w / 2, h); s.lineTo(-w / 2, 0);
++    const p = new THREE.Path(); p.moveTo(-holeHW, 0); p.lineTo(-holeHW, holeH); p.absarc(0, holeH, holeHW, Math.PI, 0, true); p.lineTo(holeHW, 0); p.lineTo(-holeHW, 0); s.holes.push(p); return s;
++  }
++  function doorShape(hw, hy) { const s = new THREE.Shape(); s.moveTo(-hw, 0); s.lineTo(hw, 0); s.lineTo(hw, hy); s.absarc(0, hy, hw, 0, Math.PI, false); s.lineTo(-hw, 0); return s; }
++  const extrude = (shape, depth, rot = true) => { const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 12 }); g.translate(0, 0, -depth / 2); if (rot) g.rotateY(Math.PI / 2); return g; };   // sumbu-z hasil = sumbu-x gerbang (keluar); sumbu-x hasil -> -z
++  const wallEnd = new Map();
++  for (const g of GATES) {
++    const grp = new THREE.Group(); grp.position.set(g.x, 0, g.z); grp.rotation.y = -g.psi; city.add(grp);
++    const half = g.gap / 2, tw = 7.6, tz = half + tw / 2, out = { x: Math.cos(g.psi), z: Math.sin(g.psi) }, tan = { x: -Math.sin(g.psi), z: Math.cos(g.psi) };
++    const P = (a, b) => ({ x: g.x + out.x * a + tan.x * b, z: g.z + out.z * a + tan.z * b });
++    for (const sd of [-1, 1]) {   // dua menara persegi di kiri-kanan lorong
++      const t = new THREE.Group(); t.position.set(0, 0, sd * tz); grp.add(t);
++      mesh(boxUV(9, 15, tw, 0.5), M.tower, 0, 7.5, 0, t); mesh(box(10, 0.9, tw + 1.0), M.plinth, 0, 15.4, 0, t);
++      for (let i = -2; i <= 2; i++) for (const e of [-1, 1]) { mesh(box(1.1, 1.0, 1.1), M.tower, i * 2.1, 16.3, e * (tw / 2 + 0.2), t); }
++      mesh(new THREE.ConeGeometry(6.9, 8, 4).rotateY(Math.PI / 4), M.roofBlue, 0, 20, 0, t); mesh(cyl(0.06, 0.06, 3.0, 5), M.gold, 0, 25.3, 0, t, false);
++      for (const fx of [-1, 1]) mesh(new THREE.PlaneGeometry(0.8, 1.8), M.window, fx * 4.55, 10.5, 0, t, false).rotation.y = fx > 0 ? Math.PI / 2 : -Math.PI / 2;
++      banner(t, g.k === 2 ? 'crown' : 'sword', 4.58, 8.2, 0, 2.0, 4.6, Math.PI / 2); banner(t, g.k === 2 ? 'crown' : 'sword', -4.58, 8.2, 0, 2.0, 4.6, -Math.PI / 2);
++      for (const a of [-2.2, 2.2]) { const c = P(a, sd * tz); col(c.x, c.z, 3.9); }
++    }
++    // lengkung gerbang di atas lorong
++    const holeHW = half - 1.2, holeH = g.k === 2 ? 5.2 : 4.0, archDepth = 7;
++    const arch = mesh(extrude(archShape(g.gap, 12.5, holeHW, holeH), archDepth), M.tower, 0, 0, 0, grp); scaleUV(arch.geometry, 0.5, 0.5);
++    mesh(box(archDepth + 0.6, 0.5, g.gap + 0.8), M.plinth, 0, 12.7, 0, grp);
++    plaque(grp, g.name.toUpperCase(), null, archDepth / 2 + 0.06, 10.7, 0, Math.min(6.2, g.gap - 1), 1.3, Math.PI / 2);
++    plaque(grp, g.name.toUpperCase(), null, -archDepth / 2 - 0.06, 10.7, 0, Math.min(6.2, g.gap - 1), 1.3, -Math.PI / 2);
++    for (const sx of [-1, 1]) for (const sd of [-1, 1]) { const lx = sx * (archDepth / 2 + 0.3), lz = sd * (holeHW + 0.55); mesh(box(0.26, 0.34, 0.26), M.lantern, lx, 6.1, lz, grp, false); mesh(box(0.1, 0.8, 0.1), M.iron, lx, 6.6, lz, grp, false); }
++    for (const sd of [-1, 1]) for (const a of [-2.6, 0, 2.6]) { const c = P(a, sd * (holeHW + 0.6)); col(c.x, c.z, 0.85); }   // tiang lengkung (batu) di kiri-kanan lorong
++    if (g.open) {   // Gerbang Utama: jeruji besi terangkat di dalam lengkung
++      for (let z = -holeHW + 0.45; z < holeHW - 0.2; z += 0.75) { const top = holeH + Math.sqrt(Math.max(0, holeHW * holeHW - z * z)) - 0.15, bot = holeH - 0.2; if (top - bot < 0.5) continue; mesh(box(0.1, top - bot, 0.1), M.iron, 0, (top + bot) / 2, z, grp, false); }
++      mesh(box(0.16, 0.14, 2 * holeHW), M.iron, 0, holeH - 0.2, 0, grp, false);
++    } else {   // gerbang samping: pintu kayu dua daun, tertutup
++      const door = mesh(extrude(doorShape(holeHW, holeH), 0.5), M.woodDark, 0, 0, 0, grp); void door;
++      for (const y of [1.0, 2.6, holeH + holeHW * 0.35]) mesh(box(0.6, 0.18, 2 * holeHW), M.iron, 0, y, 0, grp, false);
++      mesh(box(0.62, holeH + holeHW, 0.1), M.iron, 0, (holeH + holeHW) / 2, 0, grp, false);
++      for (let z = -holeHW + 1.0; z < holeHW; z += 1.4) { const k = mesh(new THREE.SphereGeometry(0.1, 6, 4), M.gold, 0.32, 1.6, z, grp, false); void k; }
++      for (let a = -holeHW; a <= holeHW; a += 1.2) { const c = P(0, a); col(c.x, c.z, 0.9); }
++    }
++    wallEnd.set(g.k, tz + tw / 2);   // jarak dari tengah gerbang ke ujung menara (tempat tembok bersambung)
++  }
++  // tembok antar menara sudut & gerbang
++  for (let k = 0; k < 5; k++) {
++    const A = VERTS[k], B = VERTS[(k + 1) % 5], g = GATES[k], ux = (B.x - A.x) / SIDE, uz = (B.z - A.z) / SIDE, e = wallEnd.get(k) - 0.3, vt = WALL.towerR - 0.6;
++    wallSeg(A.x + ux * vt, A.z + uz * vt, g.x - ux * e, g.z - uz * e);
++    wallSeg(g.x + ux * e, g.z + uz * e, B.x - ux * vt, B.z - uz * vt);
++  }
++  { const cm = new THREE.InstancedMesh(crenelG, M.wall, Math.max(1, crenelM.length)); cm.castShadow = cm.receiveShadow = true; crenelM.forEach((m, i) => cm.setMatrixAt(i, m)); city.add(cm); }
++  yield;
++
++  // ---------- JALAN RAYA GERBANG UTAMA: saluran air di tengah + jembatan + lampu + pohon ----------
++  function canal(x0, z0, x1, z1, w, bridges = [], edge = true) {   // saluran lurus (di sepanjang sumbu-x atau sumbu-z); jembatan = posisi (x atau z) tempat jembatan batu menyeberang
++    const alongX = Math.abs(x1 - x0) >= Math.abs(z1 - z0), L = Math.hypot(x1 - x0, z1 - z0), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
++    const g = new THREE.PlaneGeometry(alongX ? L : w, alongX ? w : L).rotateX(-Math.PI / 2).translate(cx, 0.045, cz); scaleUV(g, alongX ? L / 4 : w / 4, alongX ? w / 4 : L / 4);
++    const wm = new THREE.Mesh(g, M.water); wm.receiveShadow = true; city.add(wm);
++    if (edge) for (const sd of [-1, 1]) { const off = sd * (w / 2 + 0.28), ex = alongX ? cx : cx + off, ez = alongX ? cz + off : cz; mesh(alongX ? box(L, 0.42, 0.55) : box(0.55, 0.42, L), M.plinth, ex, 0.21, ez, city, false); }
++    for (let s = 0; s <= L; s += 1.5) {   // tepi saluran tidak bisa diseberangi kecuali lewat jembatan
++      const px = alongX ? x0 + (x1 - x0) * s / L : x0, pz = alongX ? z0 : z0 + (z1 - z0) * s / L, pos = alongX ? px : pz;
++      if (bridges.some(b => Math.abs(pos - b) < 2.6)) continue;
++      for (const sd of [-1, 1]) col(alongX ? px : px + sd * (w / 2 + 0.3), alongX ? pz + sd * (w / 2 + 0.3) : pz, 0.8);
++    }
++    for (const b of bridges) {   // jembatan batu pendek di atas saluran
++      const bw = 3.8, bx = alongX ? b : cx, bz = alongX ? cz : b, by = 0.27;
++      mesh(alongX ? box(bw, 0.34, w + 2.2) : box(w + 2.2, 0.34, bw), M.plinth, bx, by, bz);
++      for (const sd of [-1, 1]) mesh(alongX ? box(0.28, 0.55, w + 2.2) : box(w + 2.2, 0.55, 0.28), M.plinth, alongX ? bx + sd * (bw / 2 - 0.14) : bx, 0.72, alongX ? bz : bz + sd * (bw / 2 - 0.14), city, false);
++    }
++    return wm;
++  }
++  { const x0 = -APOTHEM + 8, x1 = -RING.r - RING.w / 2 - 6; canal(x0, 0, x1, 0, 2.2, [-122, -104, -88]);
++    for (let x = x0 + 4; x < x1 - 2; x += 17) for (const sd of [-1, 1]) lamp(x, sd * (AVENUE_W / 2 + 0.6));
++  }
++  yield;
++
++  // ---------- Halaman istana: 4 air mancur + tugu + papan ----------
++  for (let k = 0; k < 4; k++) {
++    const a = (45 + k * 90) * D2R, fx = Math.cos(a) * 47, fz = Math.sin(a) * 47, g = new THREE.Group(); g.position.set(fx, 0, fz); city.add(g);
++    mesh(cyl(2.9, 3.1, 0.9, 14), M.plinth, 0, 0.45, 0, g); mesh(new THREE.CircleGeometry(2.55, 20).rotateX(-Math.PI / 2), M.water, 0, 0.88, 0, g, false);
++    mesh(cyl(0.35, 0.5, 2.2, 8), M.plinth, 0, 1.8, 0, g); mesh(cyl(1.2, 0.5, 0.4, 10), M.plinth, 0, 2.9, 0, g); mesh(new THREE.SphereGeometry(0.28, 8, 6), M.gold, 0, 3.3, 0, g, false);
++    col(fx, fz, 3.3);
++  }
++  for (let k = 0; k < 4; k++) {
++    const a = (k * 90) * D2R, ox = Math.cos(a) * (PALACE_SITE.r - 3.2), oz = Math.sin(a) * (PALACE_SITE.r - 3.2), g = new THREE.Group(); g.position.set(ox, 0, oz); city.add(g);
++    mesh(box(1.6, 0.6, 1.6), M.plinth, 0, 0.3, 0, g); mesh(box(0.9, 7, 0.9), M.hall, 0, 4.1, 0, g); mesh(new THREE.ConeGeometry(0.75, 1.1, 4).rotateY(Math.PI / 4), M.gold, 0, 8.15, 0, g); col(ox, oz, 1.0);
++  }
++  signPost(-PALACE_SITE.r - 8, 7, -PALACE_SITE.r - 60, 7, [{ text: 'ISTANA KEKAISARAN', sub: 'Tapak istana — belum dibangun' }], 1.2, 3.2, 1.0);
++  // papan nama di Gerbang Utama (arah jalan)
++  signPost(-APOTHEM + 6, 11, -APOTHEM - 30, 11, [{ text: 'KOTA KEKAISARAN', sub: 'Selamat datang, pengelana' }, { text: 'Distrik 1 · Military Quarter', sub: 'Lurus, melewati istana' }], 1.15, 3.0, 1.5);
++  for (const sd of [-1, 1]) lamp(-APOTHEM - 6, sd * (GATE_MAIN.gap / 2 + 1.6));
++  yield;
++
++  // ---------- Pohon hias (instancing, geometri milik dunia) ----------
++  const trees = [];
++  const addTree = (x, z, s) => trees.push({ x, z, s, a: rand() * 6.283 });
++  for (let x = -APOTHEM + 22; x < -RING.r - 14; x += 19) for (const sd of [-1, 1]) addTree(x, sd * (AVENUE_W / 2 + 4.5), Rn(0.65, 0.85));
++
++  // ======================================================================
++  //  DISTRIK 1 — MILITARY QUARTER
++  // ======================================================================
++  // ---------- lantai: jalan utama, lapangan apel, jalur ke bangunan ----------
++  decalStrip(D1.avenue.x0 - 2, 0, D1.avenue.x1, 0, D1.avenue.w, M.cobble, 4, 0.33);
++  const P1 = D1.parade;
++  decalRect(P1.x, P1.z, P1.w + 2.4, P1.d + 2.4, M.cobble, 5, 0.33);        // bingkai batu kali di sekeliling
++  decalRect(P1.x, P1.z, P1.w, P1.d, M.slab, 6, 0.14);                      // lantai lapangan apel
++  // lambang di tengah lapangan: UV cakram dipetakan 0..1 supaya gambar utuh
++  (() => { const g = new THREE.CircleGeometry(7.5, 48).rotateX(-Math.PI / 2); const p = g.attributes.position, uv = new Float32Array(p.count * 2); for (let i = 0; i < p.count; i++) { uv[i * 2] = p.getX(i) / 15 + 0.5; uv[i * 2 + 1] = 0.5 - p.getZ(i) / 15; } g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); const t = T.emblem.clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
++    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: t, roughness: 1, polygonOffset: true, polygonOffsetFactor: -12, polygonOffsetUnits: -12 })); m.position.set(P1.x - 2, 0.02 + 10 * 0.004, 0); m.receiveShadow = true; city.add(m); })();
++  const lane = (x0, z0, x1, z1, w = 3) => decalStrip(x0, z0, x1, z1, w, M.cobble, 5, 0.33);
++  for (const sd of [-1, 1]) {
++    const b1 = D1.buildings.find(b => b.id === (sd < 0 ? 'barak-1' : 'barak-2')), b3 = D1.buildings.find(b => b.id === (sd < 0 ? 'barak-3' : 'barak-4'));
++    lane(b1.x, sd * 26, b1.x, sd * (Math.abs(b1.z) - b1.d / 2 - 0.5)); lane(b3.x, sd * 26, b3.x, sd * (Math.abs(b3.z) - b3.d / 2 - 0.5));
++    for (const y of D1.yards) if (y.z * sd > 0) lane(y.x, sd * 5.5, y.x, sd * (Math.abs(y.z) - y.d / 2 + 0.5), 3.4);          // dari jalan utama ke gerbang lapangan latihan (lewat jembatan)
++    const sm = D1.buildings.find(b => b.id === (sd < 0 ? 'tempa' : 'perwira'));
++    { const zd = sd * (Math.abs(sm.z) - sm.d / 2 - 0.6); lane(118.6, sd * 26, 118.6, zd, 2.4); lane(sm.x, zd, 118.6, zd, 2.4); }
++    for (const id of ['gudang', 'kandang']) { const b = D1.buildings.find(q => q.id === id); if (b.z * sd > 0) lane(b.x - b.d / 2 - 0.5, b.z, P1.x + P1.w / 2, b.z, 3); }
++  }
++  yield;
++
++  // ---------- saluran air + jembatan di tepi jalan utama ----------
++  for (const sd of [-1, 1]) canal(D1.canal.x0, sd * D1.canal.off, D1.canal.x1, sd * D1.canal.off, D1.canal.w, [D1.yards[0].x], true);
++  // ---------- bangunan ----------
++  const roofFor = { barracks: M.roofBlue, officers: M.roofBlue, armory: M.roofDark, stable: M.roofRed, smithy: M.roofDark, hq: M.roofBlue };
++  function shell(g, w, d, H, rh, { wall = M.plaster, roof = M.roofBlue, ov = 0.9, beams = true, chimney = true, windows = true } = {}) {
++    const y0 = 0.7;
++    mesh(boxUV(w + 0.5, 0.7, d + 0.5, 0.5), M.plinth, 0, 0.35, 0, g);
++    mesh(box(w, H, d), wall, 0, y0 + H / 2, 0, g);
++    if (beams) {
++      const n = Math.max(2, Math.round(w / 3.2));
++      for (let i = 0; i <= n; i++) for (const e of [-1, 1]) mesh(box(0.28, H, 0.2), M.timber, -w / 2 + i * w / n, y0 + H / 2, e * (d / 2 + 0.02), g, false);
++      for (const e of [-1, 1]) { mesh(box(w, 0.24, 0.2), M.timber, 0, y0 + H, e * (d / 2 + 0.02), g, false); mesh(box(w, 0.2, 0.2), M.timber, 0, y0 + H * 0.5, e * (d / 2 + 0.02), g, false); }
++      for (const e of [-1, 1]) { mesh(box(0.2, H, 0.28), M.timber, e * (w / 2 + 0.02), y0 + H / 2, 0, g, false); mesh(box(0.2, 0.24, d), M.timber, e * (w / 2 + 0.02), y0 + H, 0, g, false); }
++    }
++    if (windows) { const n = Math.max(2, Math.round(w / 4.2)); for (let i = 0; i < n; i++) { const x = -w / 2 + (i + 0.5) * w / n; if (Math.abs(x) < 1.9) continue; for (const e of [-1, 1]) { const wm = mesh(new THREE.PlaneGeometry(0.95, 1.25), M.window, x, y0 + H * 0.58, e * (d / 2 + 0.07), g, false); if (e < 0) wm.rotation.y = Math.PI; mesh(box(1.15, 0.12, 0.14), M.timber, x, y0 + H * 0.58 - 0.68, e * (d / 2 + 0.07), g, false); } } }
++    // atap pelana: punggung atap sejajar fasad (sumbu-x lokal)
++    const hz = d / 2 + ov, ang = Math.atan2(rh, hz), sl = Math.hypot(hz, rh);
++    for (const e of [-1, 1]) { const s = mesh(boxUV(w + 2 * ov * 0.6, 0.26, sl, 0.5), roof, 0, y0 + H + rh / 2 + 0.05, e * hz / 2, g); s.rotation.x = e * ang; }
++    mesh(box(w + 2 * ov * 0.6 + 0.2, 0.22, 0.4), M.timber, 0, y0 + H + rh + 0.05, 0, g, false);
++    for (const e of [-1, 1]) { const tri = new THREE.Shape(); tri.moveTo(-d / 2, 0); tri.lineTo(d / 2, 0); tri.lineTo(0, rh); const tg = new THREE.ShapeGeometry(tri); tg.rotateY(e * Math.PI / 2); const t = mesh(tg, wall, e * (w / 2 + 0.01), y0 + H, 0, g, false); void t; }
++    if (chimney) { mesh(box(1.1, rh + 1.6, 1.1), M.tower, w * 0.28, y0 + H + (rh + 1.6) / 2 - 0.1, -d * 0.18, g); mesh(box(1.4, 0.2, 1.4), M.plinth, w * 0.28, y0 + H + rh + 1.4, -d * 0.18, g, false); }
++    return y0;
++  }
++  function door(g, d, y0, wd = 1.9, hd = 2.9) {
++    mesh(box(wd, hd, 0.2), M.woodDark, 0, y0 + hd / 2, d / 2 + 0.06, g, false); mesh(box(wd + 0.5, 0.35, 0.3), M.plinth, 0, y0 + hd + 0.2, d / 2 + 0.1, g, false);
++    for (const sd of [-1, 1]) mesh(box(0.3, hd + 0.3, 0.3), M.plinth, sd * (wd / 2 + 0.2), y0 + (hd + 0.3) / 2, d / 2 + 0.1, g, false);
++    mesh(box(wd + 1.3, 0.36, 1.3), M.plinth, 0, 0.18, d / 2 + 0.65, g, false); mesh(box(wd + 0.9, 0.36, 0.7), M.plinth, 0, 0.54, d / 2 + 0.35, g, false);   // anak tangga
++    for (const sd of [-1, 1]) { mesh(box(0.2, 0.3, 0.2), M.lantern, sd * (wd / 2 + 0.95), y0 + 2.5, d / 2 + 0.2, g, false); mesh(box(0.06, 0.5, 0.06), M.iron, sd * (wd / 2 + 0.95), y0 + 2.85, d / 2 + 0.2, g, false); }
++  }
++  const rack = (g, x, z, ry = 0) => { const r = new THREE.Group(); r.position.set(x, 0, z); r.rotation.y = ry; g.add(r); for (const sd of [-1, 1]) mesh(cyl(0.06, 0.07, 1.5, 5), M.timber, sd * 0.9, 0.75, 0, r, false); mesh(box(2.0, 0.1, 0.1), M.timber, 0, 1.15, 0, r, false); mesh(box(2.0, 0.1, 0.1), M.timber, 0, 0.55, 0, r, false);
++    for (let i = 0; i < 5; i++) { const s = mesh(cyl(0.025, 0.025, 2.3, 4), i % 2 ? M.iron : M.wood, -0.7 + i * 0.35, 1.0, 0, r, false); s.rotation.z = 0.12 * (i - 2) * 0.4; } return r; };
++  const hay = (g, x, z, ry = 0, n = 1) => { for (let i = 0; i < n; i++) { const h = mesh(cyl(0.38, 0.38, 0.95, 8), M.straw, x, 0.38 + (i % 2) * 0.76, z + (i % 2) * 0.1, g); h.rotation.z = Math.PI / 2; h.rotation.y = ry; } };
++  const barrel = (g, x, z) => { mesh(cyl(0.38, 0.34, 0.8, 8), M.wood, x, 0.4, z, g); mesh(cyl(0.39, 0.39, 0.07, 8), M.iron, x, 0.22, z, g, false); mesh(cyl(0.39, 0.39, 0.07, 8), M.iron, x, 0.6, z, g, false); };
++
++  for (const b of D1.buildings) {
++    const g = place(b.x, b.z, b.face);
++    const w = b.w, d = b.d;
++    if (b.kind === 'barracks') {
++      const y0 = shell(g, w, d, 4.4, 3.4, { wall: M.plaster, roof: M.roofBlue });
++      door(g, d, y0); plaque(g, b.name.toUpperCase(), null, 0, y0 + 4.55, d / 2 + 0.1, 3.8, 0.78);
++      for (const sd of [-1, 1]) banner(g, 'sword', sd * w * 0.3, y0 + 2.3, d / 2 + 0.14, 0.9, 2.0);
++      rack(g, -w / 2 + 2.6, d / 2 + 1.1, 0); barrel(g, w / 2 - 1.6, d / 2 + 1.0); barrel(g, w / 2 - 2.5, d / 2 + 1.2);
++    } else if (b.kind === 'officers') {
++      const y0 = shell(g, w, d, 5.0, 3.8, { wall: M.plaster, roof: M.roofBlue });
++      door(g, d, y0, 1.7, 2.8); plaque(g, b.name.toUpperCase(), null, 0, y0 + 4.3, d / 2 + 0.1, 3.8, 0.78);
++      const t = new THREE.Group(); t.position.set(-w / 2 - 0.4, 0, d / 2 - 1.0); g.add(t); roundTower(t, 1.9, 8.2, 3.6, M.roofBlue);
++      { const fx = Math.cos(b.face), fz = Math.sin(b.face), lx = -w / 2 - 0.4, lz = d / 2 - 1.0; col(b.x + fz * lx + fx * lz, b.z - fx * lx + fz * lz, 2.2); }
++      for (let i = 0; i < 2; i++) { mesh(box(1.3, 0.1, 0.9), M.wood, -w / 4 + i * 4.5, y0 + 2.4, d / 2 + 0.55, g, false); mesh(box(1.3, 0.8, 0.1), M.woodDark, -w / 4 + i * 4.5, y0 + 2.8, d / 2 + 1.0, g, false); }
++      banner(g, 'sword', w / 2 - 1.4, y0 + 2.6, d / 2 + 0.14, 0.9, 2.0);
++    } else if (b.kind === 'armory') {
++      const y0 = shell(g, w, d, 4.6, 3.4, { wall: M.plasterGrey, roof: M.roofDark, windows: false });
++      door(g, d, y0, 2.4, 3.2); plaque(g, 'GUDANG SENJATA', null, 0, y0 + 4.85, d / 2 + 0.1, 4.2, 0.82);
++      const sh = new THREE.Mesh(new THREE.CircleGeometry(0.8, 6), new THREE.MeshStandardMaterial({ map: bannerTex('sword'), roughness: 1 })); sh.position.set(0, y0 + 3.9, d / 2 + 0.08); g.add(sh);
++      rack(g, -w / 2 + 1.8, d / 2 + 1.1, 0); rack(g, w / 2 - 1.8, d / 2 + 1.1, 0);
++      for (let i = 0; i < 3; i++) mesh(box(0.9, 0.7, 0.7), M.wood, w / 2 + 1.2 + (i % 2) * 0.1, 0.35 + (i > 1 ? 0.7 : 0), -d * 0.2 + (i % 2) * 0.8, g);
++    } else if (b.kind === 'stable') {
++      const y0 = shell(g, w, d, 3.4, 3.0, { wall: M.plaster, roof: M.roofRed, windows: false });
++      door(g, d, y0, 2.6, 2.6); plaque(g, 'KANDANG KUDA', null, 0, y0 + 3.7, d / 2 + 0.1, 3.6, 0.72);
++      for (const sd of [-1, 1]) { mesh(box(2.0, 2.2, 0.14), M.woodDark, sd * w * 0.3, y0 + 1.15, d / 2 + 0.07, g, false); mesh(box(2.2, 0.16, 0.22), M.timber, sd * w * 0.3, y0 + 2.3, d / 2 + 0.1, g, false); }
++      mesh(box(2.6, 0.5, 0.7), M.wood, w / 2 + 1.0, 0.45, 0.5, g); hay(g, -w / 2 - 1.2, 1.2, 0, 3); hay(g, -w / 2 - 1.2, -0.3, 0.4, 2);
++      for (const sd of [-1, 1]) { mesh(cyl(0.08, 0.1, 1.5, 5), M.timber, sd * 1.7, 0.75, d / 2 + 2.0, g); } mesh(box(3.5, 0.12, 0.12), M.timber, 0, 1.3, d / 2 + 2.0, g, false);
++    } else if (b.kind === 'smithy') {
++      const y0 = shell(g, w, d, 3.8, 2.8, { wall: M.plasterGrey, roof: M.roofDark, windows: false, chimney: false });
++      door(g, d, y0, 1.9, 2.6); plaque(g, 'PANDAI BESI', null, 0, y0 + 3.4, d / 2 + 0.1, 3.0, 0.62);
++      mesh(box(1.6, 8.4, 1.6), M.tower, w * 0.28, 4.2, -d * 0.2, g); mesh(box(2.0, 0.3, 2.0), M.plinth, w * 0.28, 8.5, -d * 0.2, g);
++      mesh(new THREE.PlaneGeometry(1.5, 1.1), M.glow, 0, y0 + 1.5, d / 2 + 0.1, g, false); mesh(box(1.9, 0.18, 0.24), M.iron, 0, y0 + 2.2, d / 2 + 0.12, g, false);
++      mesh(box(0.9, 0.5, 0.6), M.iron, -w / 2 - 1.3, 0.55, d / 2 - 1.0, g); mesh(box(0.55, 0.9, 0.5), M.timber, -w / 2 - 1.3, 0.45, d / 2 - 1.0, g); barrel(g, w / 2 + 1.0, d / 2 - 0.8); barrel(g, w / 2 + 1.0, d / 2 - 1.8);
++    }
++    colRect(b);
++  }
++  yield;
++
++  // ---------- Markas Komando ----------
++  { const h = D1.hq, g = place(h.x, h.z, h.face), w = h.w, d = h.d;
++    const y0 = shell(g, w, d, 7.2, 4.8, { wall: M.plaster, roof: M.roofBlue, ov: 1.1, chimney: false });
++    mesh(boxUV(7.4, 13.5, 5.2, 0.5), M.hall, 0, 6.75, d / 2 + 1.8, g);   // menara tengah di fasad
++    mesh(box(8.2, 0.6, 6.0), M.plinth, 0, 13.7, d / 2 + 1.8, g); mesh(new THREE.ConeGeometry(5.6, 8.5, 4).rotateY(Math.PI / 4), M.roofBlue, 0, 18.2, d / 2 + 1.8, g); mesh(cyl(0.06, 0.06, 3.4, 5), M.gold, 0, 23.6, d / 2 + 1.8, g, false);
++    { mesh(extrude(doorShape(1.9, 3.6), 0.5, false), M.woodDark, 0, 0, d / 2 + 4.4, g, false); for (const y of [1.4, 3.2]) mesh(box(3.9, 0.16, 0.2), M.iron, 0, y, d / 2 + 4.5, g, false); mesh(box(0.14, 5.4, 0.2), M.iron, 0, 2.7, d / 2 + 4.52, g, false); }
++    for (const sd of [-1, 1]) mesh(box(0.7, 5.6, 0.7), M.plinth, sd * 2.4, 2.8, d / 2 + 4.5, g); mesh(box(5.6, 0.9, 0.9), M.plinth, 0, 5.7, d / 2 + 4.5, g);
++    mesh(box(8.6, 0.5, 2.2), M.plinth, 0, 0.55, d / 2 + 5.0, g); mesh(box(7.2, 0.5, 1.6), M.plinth, 0, 0.25, d / 2 + 5.9, g);   // tangga lebar
++    { const em = new THREE.Mesh(new THREE.CircleGeometry(1.15, 24), new THREE.MeshStandardMaterial({ map: T.emblem, roughness: 1 })); em.position.set(0, 9.6, d / 2 + 4.43); g.add(em); }
++    plaque(g, 'MARKAS KOMANDO', 'Military Quarter', 0, 7.4, d / 2 + 4.45, 5.0, 1.25);
++    for (const sd of [-1, 1]) {
++      const t = new THREE.Group(); t.position.set(sd * (w / 2 + 0.4), 0, d / 2 - 0.5); g.add(t); roundTower(t, 2.7, 11.5, 5.0, M.roofBlue);
++      banner(g, 'sword', sd * (w / 2 - 3.2), y0 + 3.4, d / 2 + 0.14, 1.2, 2.8); banner(g, 'sword', sd * 3.15, y0 + 7.2, d / 2 + 4.45, 1.0, 3.0);
++      mesh(box(0.2, 0.3, 0.2), M.lantern, sd * 3.2, y0 + 2.4, d / 2 + 4.6, g, false);
++    }
++    colRect(h, 0.4); { const fx = Math.cos(h.face), fz = Math.sin(h.face), ax = -fz, az = fx; for (const sd of [-1, 1]) col(h.x + ax * sd * (w / 2 + 0.4) + fx * (d / 2 - 0.5), h.z + az * sd * (w / 2 + 0.4) + fz * (d / 2 - 0.5), 3.0); col(h.x + fx * (d / 2 + 1.8), h.z + fz * (d / 2 + 1.8), 3.6); }
++  }
++  // pos jaga bundar di gerbang distrik
++  for (const p of D1.posts) { const g = new THREE.Group(); g.position.set(p.x, 0, p.z); city.add(g); roundTower(g, p.r, 8.4, 3.8, M.roofBlue); banner(g, 'sword', 0, 6.4, p.r + 0.07, 0.9, 2.0, 0); col(p.x, p.z, p.r + 0.3); }
++  yield;
++
++  // ---------- Pagar kayu (palisade) di sepanjang jalan radial sisi Distrik 1 ----------
++  { const posts = [], rails = [];
++    for (const sg of [-1, 1]) {
++      const phi = sg * 36 * D2R, ux = Math.cos(phi), uz = Math.sin(phi), probe = { x: 120, z: 0 };
++      let nx = Math.sin(phi), nz = -Math.cos(phi); if ((probe.x - 0) * nx + (probe.z) * nz < 0 || sg < 0) { nx = -nx; nz = -nz; }
++      // pastikan normal menunjuk ke dalam Distrik 1 (ke arah sumbu-x): uji titik kecil
++      const t0 = { x: ux * 100 + nx * 3, z: uz * 100 + nz * 3 }; if (!inD1(t0.x, t0.z, 0)) { nx = -nx; nz = -nz; }
++      const off = ROAD_W / 2 + 0.9, s0 = 80, s1 = 138;
++      for (let s = s0; s <= s1; s += 0.95) { const x = ux * s + nx * off, z = uz * s + nz * off; if (!insidePoly(x, z, WALL.t / 2 + 2)) break; posts.push({ x, z, h: 2.9 + 0.25 * Math.sin(s * 1.9) + Rn(-0.1, 0.1) }); if (Math.round(s / 0.95) % 2 === 0) col(x, z, 0.62); }
++      const ax = ux * s0 + nx * off, az = uz * s0 + nz * off, bx = ux * s1 + nx * off, bz = uz * s1 + nz * off, L = Math.hypot(bx - ax, bz - az);
++      for (const y of [0.9, 2.0]) { const r = mesh(box(L, 0.14, 0.14), M.timber, (ax + bx) / 2, y, (az + bz) / 2, city, false); r.rotation.y = -Math.atan2(bz - az, bx - ax); }
++    }
++    const lg = new THREE.CylinderGeometry(0.2, 0.23, 1, 6).translate(0, 0.5, 0), tg = new THREE.ConeGeometry(0.21, 0.5, 6).translate(0, 0.25, 0);
++    const pm = new THREE.InstancedMesh(lg, M.wood, Math.max(1, posts.length)), pt = new THREE.InstancedMesh(tg, M.woodDark, Math.max(1, posts.length));
++    posts.forEach((p, i) => { dummy.position.set(p.x, 0, p.z); dummy.rotation.set(0, rand() * 6, 0); dummy.scale.set(1, p.h, 1); dummy.updateMatrix(); pm.setMatrixAt(i, dummy.matrix); dummy.position.y = p.h; dummy.scale.set(1, 1, 1); dummy.updateMatrix(); pt.setMatrixAt(i, dummy.matrix); });
++    pm.castShadow = pt.castShadow = pm.receiveShadow = true; city.add(pm, pt);
++  }
++  // ---------- Lapangan latihan & panah ----------
++  const fenceSegs = [];   // [x0,z0,x1,z1]
++  const fenceBuild = () => {
++    const posts = [];
++    for (const [ax, az, bx, bz] of fenceSegs) {
++      const L = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.round(L / 1.8)); for (let i = 0; i <= n; i++) { const x = ax + (bx - ax) * i / n, z = az + (bz - az) * i / n; posts.push([x, z]); col(x, z, 0.55); }
++      for (const y of [0.55, 1.05]) { const r = mesh(box(L, 0.1, 0.1), M.wood, (ax + bx) / 2, y, (az + bz) / 2, city, false); r.rotation.y = -Math.atan2(bz - az, bx - ax); }
++    }
++    const pm = new THREE.InstancedMesh(cyl(0.07, 0.09, 1.3, 5).translate(0, 0.65, 0), M.timber, Math.max(1, posts.length)); posts.forEach(([x, z], i) => { dummy.position.set(x, 0, z); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); pm.setMatrixAt(i, dummy.matrix); }); pm.castShadow = true; city.add(pm);
++  };
++  for (const y of D1.yards) {
++    const sd = Math.sign(y.z), hx = y.w / 2, hz = y.d / 2, x0 = y.x - hx, x1 = y.x + hx, zIn = y.z - sd * hz, zOut = y.z + sd * hz;   // zIn = sisi yang menghadap jalan utama (ada gerbang)
++    decalRect(y.x, y.z, y.w, y.d, M.sand, 6, 0.28);
++    fenceSegs.push([x0, zOut, x1, zOut], [x0, zIn, x0, zOut], [x1, zIn, x1, zOut], [x0, zIn, y.x - 2.0, zIn], [y.x + 2.0, zIn, x1, zIn]);   // sisi dalam punya celah gerbang selebar 4 m
++    for (const px of [-2.0, 2.0]) { mesh(box(0.34, 2.4, 0.34), M.timber, y.x + px, 1.2, zIn); }
++    mesh(box(4.4, 0.3, 0.36), M.timber, y.x, 2.45, zIn);
++    plaque(city, y.name.toUpperCase(), null, y.x, 2.95, zIn, 3.6, 0.7, sd > 0 ? Math.PI : 0);
++    if (y.kind === 'training') {
++      for (let i = 0; i < 3; i++) { const dx = x0 + 3.2 + i * (y.w - 6.4) / 2, dz = zOut - sd * 2.4, g = new THREE.Group(); g.position.set(dx, 0, dz); g.rotation.y = Math.atan2(0, 1) + (sd > 0 ? Math.PI : 0); city.add(g);
++        mesh(cyl(0.1, 0.12, 1.9, 6), M.timber, 0, 0.95, 0, g); mesh(box(1.1, 0.12, 0.12), M.timber, 0, 1.5, 0, g); mesh(cyl(0.3, 0.3, 0.75, 8), M.straw, 0, 1.35, 0.0, g); mesh(new THREE.SphereGeometry(0.2, 8, 6), M.straw, 0, 1.95, 0, g);
++        mesh(box(0.5, 0.6, 0.06), M.roofBlue, 0.48, 1.25, 0.2, g, false); col(dx, dz, 0.55); }
++      rack(city, y.x - 4.0, zIn + sd * 2.0, sd > 0 ? Math.PI : 0); hay(city, x1 - 1.6, zIn + sd * 1.8, 0, 2); col(y.x - 4.0, zIn + sd * 2.0, 1.1); col(x1 - 1.6, zIn + sd * 1.8, 0.8);
++    } else {
++      for (let i = 0; i < 4; i++) { const tx = x0 + 2.4 + i * (y.w - 4.8) / 3, tz = zOut - sd * 1.6, g = new THREE.Group(); g.position.set(tx, 0, tz); g.rotation.y = sd > 0 ? Math.PI : 0; city.add(g);
++        for (const s2 of [-1, 1]) { const lg = mesh(cyl(0.05, 0.06, 1.9, 5), M.timber, s2 * 0.45, 0.85, -0.25, g); lg.rotation.x = -0.2; } mesh(cyl(0.05, 0.05, 1.9, 5), M.timber, 0, 0.85, -0.55, g).rotation.x = 0.3;
++        const tgt = mesh(new THREE.CylinderGeometry(0.78, 0.78, 0.14, 20), [M.straw, new THREE.MeshStandardMaterial({ map: T.target, roughness: 1 }), M.straw], 0, 1.55, 0.06, g); tgt.rotation.x = Math.PI / 2; col(tx, tz, 0.6); }
++      for (let i = 0; i < 3; i++) mesh(box(0.14, 0.5, 0.14), M.timber, y.x - 3 + i * 3, 0.25, zIn + sd * 2.6, city, false);
++      mesh(box(9.4, 0.06, 0.06), M.rope, y.x, 0.5, zIn + sd * 2.6, city, false);
++      mesh(box(1.5, 0.16, 0.5), M.wood, x1 - 1.8, 0.45, zIn + sd * 1.3).castShadow = true; col(x1 - 1.8, zIn + sd * 1.3, 0.8);
++    }
++  }
++  fenceBuild();
++  yield;
++
++  // ---------- Lapangan apel: tiang bendera, tugu penjaga, lampu ----------
++  for (const [fx, fz] of [[P1.x - P1.w / 2 + 2, -P1.d / 2 + 2], [P1.x - P1.w / 2 + 2, P1.d / 2 - 2], [P1.x + P1.w / 2 - 2, -P1.d / 2 + 2], [P1.x + P1.w / 2 - 2, P1.d / 2 - 2]]) {
++    const g = new THREE.Group(); g.position.set(fx, 0, fz); city.add(g); mesh(box(1.2, 0.4, 1.2), M.plinth, 0, 0.2, 0, g); mesh(cyl(0.09, 0.14, 9.6, 6), M.timber, 0, 4.8, 0, g); mesh(new THREE.SphereGeometry(0.2, 8, 6), M.gold, 0, 9.8, 0, g, false);
++    banner(g, 'sword', 0.8, 8.0, 0, 1.5, 3.0, 0); col(fx, fz, 0.65);
++  }
++  for (const sd of [-1, 1]) {   // patung penjaga bersenjata di kiri-kanan jalan menuju markas
++    const sx = P1.x + P1.w / 2 - 6, sz = sd * 9.5, g = new THREE.Group(); g.position.set(sx, 0, sz); g.rotation.y = Math.PI; city.add(g);
++    mesh(box(1.9, 1.3, 1.9), M.plinth, 0, 0.65, 0, g); mesh(cyl(0.42, 0.55, 1.9, 8), M.hall, 0, 2.25, 0, g); mesh(new THREE.SphereGeometry(0.34, 8, 6), M.hall, 0, 3.4, 0, g); mesh(box(0.14, 3.2, 0.14), M.hall, 0.62, 2.7, 0.1, g, false); mesh(box(0.8, 1.3, 0.12), M.roofBlue, -0.55, 2.2, 0.35, g, false); col(sx, sz, 1.3);
++  }
++  for (let x = P1.x - P1.w / 2 + 6; x < P1.x + P1.w / 2 - 3; x += 12) for (const sd of [-1, 1]) lamp(x, sd * (D1.avenue.w / 2 + 0.9));
++  for (let x = 104; x <= 148; x += 14) for (const sd of [-1, 1]) if (x < P1.x - P1.w / 2 || x > P1.x + P1.w / 2) lamp(x, sd * (D1.avenue.w / 2 + 0.9));
++  for (const sd of [-1, 1]) lamp(72, sd * (D1.avenue.w / 2 + 0.9));
++  // papan Distrik 1 di pintu masuk (tepi jalan lingkar)
++  signPost(RING.r + RING.w / 2 + 4.5, 8.5, RING.r - 40, 8.5, [{ text: 'DISTRIK 1', sub: 'Military Quarter' }, { text: 'Lapangan Apel · Markas Komando', sub: '' }], 1.1, 3.0, 1.3);
++  yield;
++
++  // ---------- pohon di Distrik 1 (hanya di ruang kosong) ----------
++  for (let n = 0, tries = 0; n < (COARSE ? 14 : 28) && tries < 800; tries++) {
++    const x = Rn(RING.r + 6, 172), z = Rn(-75, 75);
++    if (!inD1(x, z, 3.5) || d1Blocked(x, z, 5.5) || Math.hypot(x - 80, Math.abs(z) - 14) < 6) continue;
++    if (trees.some(t => Math.hypot(t.x - x, t.z - z) < 9)) continue;
++    addTree(x, z, Rn(0.55, 0.8)); n++;
++  }
++  // ---------- Distrik 2-5: lahan kosong bertanda ----------
++  const stakes = [];
++  for (const g of GATES) {   // patok di tepi jalan radial yang berbatasan dengan distrik yang belum dibangun
++    const dx = Math.cos(g.psi), dz = Math.sin(g.psi), nx = -dz, nz = dx;
++    for (let s = RING.r + 8; s < APOTHEM - 10; s += 7) for (const sd of [-1, 1]) {
++      const off = (g.k === 2 ? AVENUE_W : ROAD_W) / 2 + 1.0, x = dx * s + nx * sd * off, z = dz * s + nz * sd * off;
++      if (inD1(x, z, -1.5) || d1Blocked(x, z, 1)) continue; if (g.k === 2 && x < -RING.r - 8 && Math.abs(z) < 12) continue;
++      stakes.push({ x, z });
++    }
++  }
++  { const sm = new THREE.InstancedMesh(cyl(0.05, 0.06, 1.3, 5).translate(0, 0.65, 0), M.timber, Math.max(1, stakes.length)), fm = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.42, 0.28).translate(0.22, 1.15, 0), new THREE.MeshStandardMaterial({ color: 0xc73a2a, roughness: 1, side: THREE.DoubleSide }), Math.max(1, stakes.length));
++    stakes.forEach((p, i) => { dummy.position.set(p.x, 0, p.z); dummy.rotation.set(0, rand() * 6.283, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); sm.setMatrixAt(i, dummy.matrix); fm.setMatrixAt(i, dummy.matrix); });
++    sm.castShadow = true; city.add(sm, fm); }
++  for (const d of DISTRICTS.filter(q => !q.built)) {
++    const a = (d.n - 1) * 72 * D2R, r = RING.r + RING.w / 2 + 6, sx = Math.cos(a) * r, sz = Math.sin(a) * r;
++    signPost(sx, sz, 0, 0, [{ text: d.name.toUpperCase(), sub: d.sub }, { text: 'Segera dibangun', sub: '' }], 1.1, 3.0, 1.3);
++    for (let n = 0, tries = 0; n < 5 && tries < 200; tries++) {   // beberapa pohon muda di lahan kosong
++      const rr = Rn(RING.r + 16, APOTHEM - 14), aa = a + Rn(-30, 30) * D2R, x = Math.cos(aa) * rr, z = Math.sin(aa) * rr;
++      if (!insidePoly(x, z, 8) || trees.some(t => Math.hypot(t.x - x, t.z - z) < 14)) continue; addTree(x, z, Rn(0.6, 0.9)); n++;
++    }
++  }
++  { const nT = trees.length, lm = mat.leafMat(0.03), tr = new THREE.InstancedMesh(geo.trunkOak, mat.barkMat, Math.max(1, nT)), lf = new THREE.InstancedMesh(geo.oakLeaf, lm, Math.max(1, nT));
++    trees.forEach((t, i) => { dummy.position.set(t.x, 0, t.z); dummy.rotation.set(0, t.a, 0); dummy.scale.setScalar(t.s); dummy.updateMatrix(); tr.setMatrixAt(i, dummy.matrix); lf.setMatrixAt(i, dummy.matrix); lf.setColorAt(i, tmpC.setRGB(Rn(0.8, 1.1), Rn(0.9, 1.1), Rn(0.8, 1.05))); col(t.x, t.z, 0.34 * t.s); });
++    tr.count = lf.count = nT; tr.castShadow = lf.castShadow = true; tr.receiveShadow = lf.receiveShadow = true; city.add(tr, lf); }
++  yield;
++
++  // ---------- Pembaruan per frame: air mengalir ----------
++  const upd = t => { T.water.offset.x = -t * 0.08; };
++  return { group, update: upd };
++}
++
++export function buildKekaisaran(opts) { const it = buildKekaisaranGen(opts); let r; while (!(r = it.next()).done); return r.value; }
+diff -ruN a/sawah-layout.js b/sawah-layout.js
+--- a/sawah-layout.js	2026-11-02 09:35:59.000000000 +0000
++++ b/sawah-layout.js	2026-11-02 17:01:31.711116039 +0000
+@@ -31,8 +31,8 @@
+ // titik di samping jalan: beta > 0 = sisi kanan (selatan saat menghadap timur), beta < 0 = kiri (utara)
+ export function sside(s, beta) { const p = sroadAt(s); return { x: p.x - p.tz * beta, z: p.z + p.tx * beta, tx: p.tx, tz: p.tz, s }; }
+ 
+-// Kota Kekaisaran (BELUM dibangun): jalan berakhir di gerbang perbatasan kayu yang tertutup, di ujung ladang
+-export const KEKAISARAN = { name: 'Kota Kekaisaran', open: false, x: SAWAH_PTS[SAWAH_PTS.length - 1].x, z: SAWAH_PTS[SAWAH_PTS.length - 1].z };
++// Kota Kekaisaran (kekaisaran.js): jalan berakhir di Gerbang Utama kota segi lima; gerbang kayu perbatasan lama sudah dibongkar
++export const KEKAISARAN = { name: 'Kota Kekaisaran', open: true, x: SAWAH_PTS[SAWAH_PTS.length - 1].x, z: SAWAH_PTS[SAWAH_PTS.length - 1].z };
+ export const KEKAISARAN_GATE = (() => { const p = sroadAt(SAWAH_LEN - 10); return { x: p.x, z: p.z, tx: p.tx, tz: p.tz, yaw: Math.atan2(p.tx, p.tz), half: 36, gap: 3.2 }; })();
+ 
+ // ---------- Area jelajah ----------
+@@ -147,9 +147,9 @@
+   { name: 'Mbok Rah', role: 'Penjual Wedang', tex: 'yellow', ...at(SAWAH_SPOTS.rest.s + 3, 7.4), look: SAWAH_SPOTS.rest,
+     lines: ['Duduklah di saung, Nak. Wedang jahe hangat bikin kaki pegal hilang.', 'Dari sini Kota Kekaisaran masih separuh jalan lagi ke timur.'] },
+   { name: 'Kang Ujang', role: 'Pengantar Gabah', tex: 'brown', ...at(585, -3.2), look: at(585, 20), patrol: [at(585, -3.2), at(603, -3.2), at(622, -3.2)],
+-    lines: ['Gabah ini mau kuantar ke lumbung. Berat, tapi hati senang kalau panen melimpah.', 'Di ujung ladang ada gerbang besar ke Kota Kekaisaran. Kata penjaganya, belum waktunya dibuka.'] },
++    lines: ['Gabah ini mau kuantar ke lumbung. Berat, tapi hati senang kalau panen melimpah.', 'Di ujung ladang ada gerbang besar ke Kota Kekaisaran. Sekarang sudah dibuka, tapi baru Distrik 1 yang rampung.'] },
+   { name: 'Prajurit Wira', role: 'Penjaga Perbatasan', tex: 'green', ...at(SAWAH_LEN - 26, 4.6), look: at(SAWAH_LEN - 8, 0),
+-    lines: ['Berhenti, pengelana. Gerbang Kota Kekaisaran ditutup atas perintah kekaisaran.', 'Kembalilah bila kau sudah cukup kuat. Sampai saat itu, nikmati saja pemandangan sawah ini.'] },
++    lines: ['Selamat datang, pengelana. Gerbang Utama Kota Kekaisaran sudah dibuka.', 'Distrik 1, kawasan militer, sudah selesai. Distrik lain masih dibangun, jadi jangan heran kalau masih lahan kosong.'] },
+ ];
+ export const sawahSegOf = x => { for (let i = 0; i < SAWAH_SEG_X.length - 1; i++) if (x >= SAWAH_SEG_X[i] && x < SAWAH_SEG_X[i + 1]) return i; return -1; };
+ 
+diff -ruN a/sawah.js b/sawah.js
+--- a/sawah.js	2026-11-02 09:35:59.000000000 +0000
++++ b/sawah.js	2026-11-02 17:01:31.712139091 +0000
+@@ -127,7 +127,7 @@
+   const rest = SAWAH_SPOTS.rest, G = KEKAISARAN_GATE, gn = { x: -G.tz, z: G.tx };
+   const specials = [{ x: rest.x, z: rest.z, r: rest.r + 2 }];
+   const nearSpecial = (x, z, pad = 0) => { for (const f of specials) if (Math.hypot(x - f.x, z - f.z) < f.r + pad) return true; return false; };
+-  const onFence = (x, z, pad) => { const a = (x - G.x) * G.tx + (z - G.z) * G.tz, b = (x - G.x) * gn.x + (z - G.z) * gn.z; return Math.abs(a) < pad && Math.abs(b) < G.half + 2; };
++  const onFence = (x, z, pad) => { if (KEKAISARAN.open) return false; const a = (x - G.x) * G.tx + (z - G.z) * G.tz, b = (x - G.x) * gn.x + (z - G.z) * gn.z; return Math.abs(a) < pad && Math.abs(b) < G.half + 2; };
+   const yawAt = s => { const p = sroadAt(s); return Math.atan2(-p.tz, p.tx); };   // rotation.y yang membuat sumbu-x lokal searah jalan dan sumbu-z lokal ke sisi kanan (beta > 0)
+ 
+   // ---------- 1) Bercak warna tanah ----------
+@@ -443,7 +443,7 @@
+   yield;
+ 
+   // ---------- 8) Gerbang perbatasan menuju Kota Kekaisaran (BELUM dibuka) ----------
+-  if (inSeg(G.x)) {
++  if (!KEKAISARAN.open && inSeg(G.x)) {
+     const E = (b, a = 0) => ({ x: G.x + G.tx * a + gn.x * b, z: G.z + G.tz * a + gn.z * b });
+     const gateB = G.gap + 2.0, beamYaw = Math.atan2(-gn.z, gn.x), logBase = std(0x6b4a2d), logVar = std(0x5b3d22);
+     const logs = []; for (let b = -G.half; b <= G.half; b += 0.95) { if (Math.abs(b) < gateB + 1.9) continue; logs.push(b); }
+diff -ruN a/world.js b/world.js
+--- a/world.js	2026-11-02 09:35:59.000000000 +0000
++++ b/world.js	2026-11-02 17:01:31.713369016 +0000
+@@ -14,6 +14,8 @@
+ import { DUSUN } from './meadow-village-layout.js';
+ import { buildSawahGen } from './sawah.js';
+ import { SAWAH_CIRCLES, SAWAH_SEG_X } from './sawah-layout.js';
++import { buildKekaisaranGen } from './kekaisaran.js';
++import { KEKAISARAN_CIRCLES } from './kekaisaran-layout.js';
+ import { ChunkManager, CHUNK_CFG } from './chunks.js';
+ 
+ // ============================================================
+@@ -510,6 +512,20 @@
+       onReady() { if (prewarm) prewarm(g); },
+     });
+   });
++  // ---------- Kota Kekaisaran: satu chunk di ujung ladang (tembok segi lima, 5 gerbang, Distrik 1; lihat kekaisaran.js) ----------
++  const kekChunk = (() => {
++    const g = new THREE.Group(); g.name = 'chunk-kekaisaran'; let upd = null;
++    return chunks.add({
++      id: 'kekaisaran', name: 'Kota Kekaisaran', group: g, loadR: 240, circles: KEKAISARAN_CIRCLES.map(c => ({ ...c, r: c.r + 8 })), dyn: [],   // belum ada NPC
++      update(dt, t) { if (upd) upd(t); },
++      *build(c) {
++        const gen = buildKekaisaranGen({ colliders: c.colliders, rand: mulberry32(20261103), COARSE, geo: { trunkOak, trunkPine, oakLeaf, pineLeaf, grassGeo }, mat: { barkMat, leafMat, swayMat } });
++        let r; while (!(r = gen.next()).done) yield;
++        upd = r.value.update; g.add(r.value.group); fixDecals(g); yield;
++      },
++      onReady() { if (prewarm) prewarm(g); },
++    });
++  })();
+   chunks.refresh(SPAWN.x, SPAWN.z);
+ 
+   // ---------- API ----------
+@@ -533,6 +549,7 @@
+       if (cityChunk.state !== 'ready' && cityChunk.dist < 60) chunks.ensure('kota');   // pengaman: pemain sudah di depan kota tetapi belum siap
+       for (const mc of meadowChunks) if (mc.state !== 'ready' && mc.dist < 40) chunks.ensure(mc.id);   // sama untuk tiap bagian Padang Rumput
+       for (const sc of sawahChunks) if (sc.state !== 'ready' && sc.dist < 40) chunks.ensure(sc.id);     // dan tiap bagian Ladang Sawah
++      if (kekChunk.state !== 'ready' && kekChunk.dist < 40) chunks.ensure('kekaisaran');                 // dan Kota Kekaisaran
+       chunks.update(dt, t, pp, cp);                  // membangun / menampilkan / menyembunyikan chunk; chunk yang tampil meng-update isinya sendiri
+       npcs.update(dt, t, pp, cam);                      // NPC sudah menyembunyikan diri bila jauh (>70 m)
+       const fa = forestAmount(pp.x, pp.z); // di dalam hutan: cahaya sedikit lebih redup (teduh di bawah tajuk)

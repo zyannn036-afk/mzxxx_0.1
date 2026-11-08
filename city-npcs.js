@@ -14,7 +14,12 @@ const clipName = c => c.name.toLowerCase().split('|').pop().trim().replace(/[\s-
 const charOf = name => { const p = name.split('_')[0].toLowerCase(); return p === 'formad' ? 'formal' : p; }; // di file ada salah ketik "Formad_Head"
 const PROPS = new Set(['sword', 'pistol', 'backpack']);                                       // benda lepas (tidak ikut animasi) di dalam file
 
-const loadFBX = url => new Promise((ok, fail) => new FBXLoader().load(url, ok, undefined, fail));
+// OPTIMASI: tiap file FBX hanya di-parse SEKALI walau diminta beberapa pemanggil (Kota Arunika & Kota Kekaisaran memakai file yang sama).
+const fbxCache = new Map();
+const loadFBX = url => {
+  if (!fbxCache.has(url)) fbxCache.set(url, new Promise((ok, fail) => new FBXLoader().load(url, ok, undefined, fail)).catch(e => { fbxCache.delete(url); throw e; }));
+  return fbxCache.get(url);
+};
 
 // Warna material di file ini ditulis Blender dalam ruang warna linear, sedangkan FBXLoader menganggapnya sRGB (jadi terlalu gelap).
 // Baca ulang angka aslinya, lalu pakai sebagai linear. Juga: matikan kilap berlebihan & transparansi.
@@ -48,9 +53,23 @@ function keepOnly(model, ch) {
 }
 const boneMap = model => { const b = {}; model.traverse(o => { if (o.isBone) b[key(o.name)] = o; }); return b; };
 
+// OPTIMASI: file berisi puluhan karakter. Mengkloning SELURUH isi file untuk tiap NPC lalu membuang yang tak dipakai itu mahal
+// (rangka 79 tulang + semua mesh, per NPC). Di sini mesh karakter lain dilepas sementara dari sumber, yang dikloning hanya
+// rangka + mesh karakter terpilih (+ benda lepas), lalu mesh yang dilepas dipasang kembali. Hasilnya sama persis, jauh lebih murah.
+function cloneChar(fbx, ch) {
+  const out = [];
+  fbx.traverse(o => { if (o.isMesh && !PROPS.has(key(o.name)) && charOf(o.name) !== ch) out.push(o); });
+  const parents = out.map(o => o.parent);
+  out.forEach(o => o.removeFromParent());
+  let model;
+  try { model = cloneSkinned(fbx); }
+  finally { out.forEach((o, i) => parents[i].add(o)); }
+  return model;
+}
+
 // ukuran & arah depan model: diukur dari satu karakter acuan ('Casual', ada di kedua file)
 function inspect(fbx) {
-  const ref = cloneSkinned(fbx); keepOnly(ref, 'casual'); ref.updateMatrixWorld(true);
+  const ref = cloneChar(fbx, 'casual'); keepOnly(ref, 'casual'); ref.updateMatrixWorld(true);
   const size = new THREE.Box3().setFromObject(ref, true).getSize(new THREE.Vector3());
   const s = size.y > 0 ? HUMAN_HEIGHT / size.y : 0.0094;
   let flip = 0; // putaran agar muka menghadap +Z (depan di game ini): arah dari pergelangan kaki ke ujung kaki, dibulatkan ke kelipatan 90 derajat
@@ -63,10 +82,14 @@ function inspect(fbx) {
 }
 
 // satu NPC: { holder, mixer, idle, walk, greet, greetDur, headY }
+const headCache = new Map();   // tinggi kepala per karakter (hitungan Box3 presisi untuk mesh berkulit itu mahal; karakter sama = hasil sama)
 function build(fbx, info, def) {
-  const model = cloneSkinned(fbx), props = keepOnly(model, def.char.toLowerCase());
+  const ch = def.char.toLowerCase(), model = cloneChar(fbx, ch), props = keepOnly(model, ch);
   model.scale.multiplyScalar(info.s); model.updateMatrixWorld(true);
-  const headY = Math.max(1.4, new THREE.Box3().setFromObject(model, true).max.y); // tinggi kepala sebenarnya (penyihir bertopi lebih tinggi)
+  const hk = def.file + ':' + ch;
+  let headY = headCache.get(hk);
+  if (headY === undefined) { headY = Math.max(1.4, new THREE.Box3().setFromObject(model, true).max.y); headCache.set(hk, headY); } // tinggi kepala sebenarnya (penyihir bertopi lebih tinggi)
+  const meshes = []; model.traverse(o => { if (o.isMesh) meshes.push(o); });
 
   // pedang / ransel: pasang ke tulang terdekat (tangan kanan / dada) tanpa menggeser posisinya, supaya ikut bergerak bersama animasi
   const bones = boneMap(model);
@@ -88,7 +111,7 @@ function build(fbx, info, def) {
   if (greetClip) { greet = mixer.clipAction(greetClip); greet.setLoop(THREE.LoopOnce, 1); greet.clampWhenFinished = true; greet.weight = 0; }
 
   const holder = new THREE.Group(); holder.rotation.y = info.flip; holder.add(model);
-  return { holder, mixer, idle, walk, greet, greetDur: greetClip ? greetClip.duration : 0, headY };
+  return { holder, mixer, idle, walk, greet, greetDur: greetClip ? greetClip.duration : 0, headY, meshes };
 }
 
 // Muat file satu per satu (parsing FBX besar menahan layar sebentar, jadi diberi jeda antar file).
@@ -96,14 +119,23 @@ function build(fbx, info, def) {
 export function loadCityHumans(files, defs, onNpc) {
   const jobs = Object.keys(files).filter(k => defs.some(d => d.file === k));
   let i = 0;
+  // OPTIMASI: dulu semua NPC satu file (±15) dibuat sekaligus di satu frame = macet panjang. Sekarang antre, satu NPC per ~90 ms.
+  const queue = []; let pumping = false;
+  const pump = () => {
+    const job = queue.shift();
+    if (!job) { pumping = false; return; }
+    try { onNpc(job.d, build(job.fbx, job.info, job.d)); } catch (e) { console.warn('NPC kota gagal dibuat:', job.d.name, e); }
+    setTimeout(pump, 90);
+  };
   const next = () => {
     if (i >= jobs.length) return;
     const k = jobs[i++];
     loadFBX(files[k]).then(fbx => {
-      fixMaterials(fbx);
-      const info = inspect(fbx);
+      if (!fbx.userData.citySetup) { fixMaterials(fbx); fbx.userData.citySetup = inspect(fbx); }   // sekali saja (fixMaterials tidak boleh dijalankan dua kali: warna akan salah)
+      const info = fbx.userData.citySetup;
       console.info(`Warga kota: ${files[k]} dimuat — tinggi asli ${info.height.toFixed(1)}, skala ${info.s.toFixed(5)}, putar-depan ${info.flip.toFixed(2)} rad`);
-      for (const d of defs) if (d.file === k) { try { onNpc(d, build(fbx, info, d)); } catch (e) { console.warn('NPC kota gagal dibuat:', d.name, e); } }
+      for (const d of defs) if (d.file === k) queue.push({ d, fbx, info });
+      if (!pumping) { pumping = true; setTimeout(pump, 0); }
     }).catch(err => console.warn('Model warga kota gagal dimuat:', files[k], err)).finally(() => setTimeout(next, 1500));
   };
   next();

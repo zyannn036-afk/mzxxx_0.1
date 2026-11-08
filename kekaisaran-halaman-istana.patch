@@ -1,0 +1,93 @@
+diff -ruN a/kekaisaran.js b/kekaisaran.js
+--- a/kekaisaran.js	2026-11-03 03:36:10.376250989 +0000
++++ b/kekaisaran.js	2026-11-03 03:36:10.379685385 +0000
+@@ -99,7 +99,7 @@
+     return decalPoly([[x0 + nx, z0 + nz], [x1 + nx, z1 + nz], [x1 - nx, z1 - nz], [x0 - nx, z0 - nz]], m, lvl, uvs);
+   }
+   function decalRect(cx, cz, w, d, m, lvl, uvs = 0.3) { return decalPoly([[cx - w / 2, cz - d / 2], [cx + w / 2, cz - d / 2], [cx + w / 2, cz + d / 2], [cx - w / 2, cz + d / 2]], m, lvl, uvs); }
+-  function decalRing(r0, r1, m, lvl, uvs = 0.3, seg = 96) { const g = new THREE.RingGeometry(r0, r1, seg, 1).rotateX(-Math.PI / 2); worldUV(g, uvs); const k = new THREE.Mesh(g, levelMat(m, lvl)); k.position.y = 0.02 + lvl * 0.004; k.receiveShadow = true; city.add(k); return k; }
++  function decalRing(r0, r1, m, lvl, uvs = 0.3, seg = 96, cx = 0, cz = 0) { const g = new THREE.RingGeometry(r0, r1, seg, 1).rotateX(-Math.PI / 2).translate(cx, 0, cz); worldUV(g, uvs); const k = new THREE.Mesh(g, levelMat(m, lvl)); k.position.y = 0.02 + lvl * 0.004; k.receiveShadow = true; city.add(k); return k; }
+   function decalDisc(cx, cz, r, m, lvl, uvs = 0.3, seg = 64) { const g = new THREE.CircleGeometry(r, seg).rotateX(-Math.PI / 2).translate(cx, 0, cz); worldUV(g, uvs); const k = new THREE.Mesh(g, levelMat(m, lvl)); k.position.y = 0.02 + lvl * 0.004; k.receiveShadow = true; city.add(k); return k; }
+   const place = (x, z, face, parent = city) => { const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = Math.PI / 2 - face; parent.add(g); return g; };   // bangunan: sumbu-z lokal = arah depan (face)
+   const plaque = (g, text, sub, x, y, z, w, h, ry = 0) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: plaqueTex(text, sub), roughness: 1 })); m.position.set(x, y, z); m.rotation.y = ry; g.add(m); return m; };
+@@ -678,7 +678,7 @@
+   { const a = d3p(D3.avenue.u0 - 2, 0), b = d3p(D3.avenue.u1, 0); decalStrip(a.x, a.z, b.x, b.z, D3.avenue.w, M.cobble, 4, 0.33); }
+   decalDisc(g3c.x, g3c.z, G3.r + 1.4, M.cobble, 5, 0.33, 72);
+   decalDisc(g3c.x, g3c.z, G3.r - 0.2, grassM, 6, 0.3, 72);
+-  decalRing(8.2, 11.4, gravelM, 7, 0.3, 64);
++  decalRing(8.2, 11.4, gravelM, 7, 0.3, 64, g3c.x, g3c.z);
+   for (const [du, dv] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const a = d3p(G3.u + du * 3, dv * 3), b = d3p(G3.u + du * (G3.r - 0.5), dv * (G3.r - 0.5)); decalStrip(a.x, a.z, b.x, b.z, 3.2, gravelM, 7, 0.3); }
+   for (let k = 0; k < 4; k++) {   // petak bunga bundar di empat diagonal
+     const th = (45 + k * 90) * D2R, p = q3(9.6, th); decalDisc(p.x, p.z, 2.5, std(0x7a5a38), 8, 0.3, 24);
+@@ -1153,6 +1153,62 @@
+   for (const sd of [-1, 1]) { const gx = -24.6, gz = sd * 10.5, g = new THREE.Group(); g.position.set(gx, 0, gz); city.add(g);
+     mesh(box(2.0, 1.2, 2.6), M.plinth, 0, 0.6, 0, g); mesh(box(1.1, 0.9, 1.9), M.hall, 0, 1.65, 0, g); mesh(new THREE.SphereGeometry(0.62, 10, 8), M.hall, -0.5, 2.3, 0, g); mesh(box(0.35, 0.5, 0.35), M.gold, 0.1, 2.4, 0, g, false); col(gx, gz, 1.4); }
+   yield;
++  // ======================================================================
++  //  DEKORASI HALAMAN ISTANA: taman bunga berpagar, taman mawar bundar bertugu patung, tiang bendera kerajaan, patung di sepanjang jalur,
++  //  bangku di air mancur, perapian di tangga, dan sulaman emas di lantai. Semua di antara tapak istana (r 36) dan jalan lingkar.
++  // ======================================================================
++  const flames = [];
++  const soilM = std(0x6b4a2e), goldInlay = new THREE.MeshStandardMaterial({ color: 0xd9b24a, roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide });
++  const flameM = new THREE.MeshStandardMaterial({ color: 0xffb040, emissive: 0xff7a18, emissiveIntensity: 1.6, roughness: 0.5 });
++  decalRing(40.4, 41.2, goldInlay, 5, 0.3, 120); decalRing(52.2, 52.9, goldInlay, 5, 0.3, 120);
++  const blooms = [];   // posisi bunga { x, z, c }
++  // --- dua petak bunga persegi di kiri-kanan jalur depan ---
++  for (const sd of [-1, 1]) {
++    const zc = sd * 13, x0 = -55, x1 = -39, xc = (x0 + x1) / 2;
++    decalStrip(x0, zc, x1, zc, 8, soilM, 6, 0.3);
++    for (const e of [-1, 1]) { mesh(box(x1 - x0 + 1.0, 0.9, 1.0), hedgeM, xc, 0.45, zc + e * 4, city); mesh(box(1.0, 0.9, 8.0), hedgeM, e > 0 ? x1 : x0, 0.45, zc, city); }
++    for (let x = x0; x <= x1 + 0.1; x += 2.6) { col(x, zc + 4, 1.1); col(x, zc - 4, 1.1); } for (let z = zc - 2.6; z <= zc + 2.6; z += 2.6) { col(x0, z, 1.1); col(x1, z, 1.1); }
++    for (let i = 0; i < 7; i++) for (let j = -1; j <= 1; j++) { if (i === 3 && j === 0) continue; blooms.push({ x: x0 + 1.3 + i * 2.2, z: zc + j * 2.4, c: FLOWER[(i + (j + 1) * 2 + (sd > 0 ? 1 : 0)) % FLOWER.length] }); }
++    cone(city, xc, zc, 2.8, 1.0);
++  }
++  // --- tiga taman mawar bundar bertugu patung (belakang & kedua sisi istana) ---
++  for (const [cx, cz] of [[47, 0], [0, 47], [0, -47]]) {
++    decalDisc(cx, cz, 5.6, soilM, 6, 0.3, 32);
++    for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2, px = cx + Math.cos(a) * 6.2, pz = cz + Math.sin(a) * 6.2; const h = mesh(box(2.2, 0.95, 1.0), hedgeM, px, 0.475, pz, city); h.rotation.y = -Math.atan2(Math.cos(a), -Math.sin(a)); if (i % 2 === 0) col(px, pz, 1.3); }
++    for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2 + 0.2; blooms.push({ x: cx + Math.cos(a) * 4.3, z: cz + Math.sin(a) * 4.3, c: FLOWER[i % FLOWER.length] }); }
++    for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2; blooms.push({ x: cx + Math.cos(a) * 2.6, z: cz + Math.sin(a) * 2.6, c: FLOWER[(i + 3) % FLOWER.length] }); }
++    statue3(cx, cz, 0, 0, 2.6);
++  }
++  { const im = new THREE.InstancedMesh(new THREE.SphereGeometry(0.26, 6, 5), new THREE.MeshStandardMaterial({ roughness: 1 }), blooms.length);
++    blooms.forEach((b, i) => { dummy.position.set(b.x, 0.38, b.z); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(Rn(0.9, 1.4)); dummy.updateMatrix(); im.setMatrixAt(i, dummy.matrix); im.setColorAt(i, tmpC.setHex(b.c)); });
++    city.add(im); }
++  yield;
++  // --- tiang bendera kerajaan (cincin r = 54, kecuali di depan petak bunga) ---
++  for (let k = 0; k < 12; k++) {
++    const deg = 15 + k * 30; if (Math.abs(deg - 180) < 20) continue;
++    const a = deg * D2R, px = Math.cos(a) * 54, pz = Math.sin(a) * 54, g = new THREE.Group(); g.position.set(px, 0, pz); g.rotation.y = Math.PI / 2 - a; city.add(g);
++    mesh(box(1.0, 0.4, 1.0), M.plinth, 0, 0.2, 0, g); mesh(cyl(0.08, 0.12, 9, 6), M.iron, 0, 4.7, 0, g, false); mesh(new THREE.SphereGeometry(0.2, 8, 6), M.gold, 0, 9.3, 0, g, false);
++    banner(g, 'palace', 0.78, 7.6, 0, 1.4, 2.4); col(px, pz, 0.45);
++  }
++  // --- patung bangsawan di sepanjang jalur depan ---
++  for (const x of [-51, -41, -31]) for (const sd of [-1, 1]) statue3(x, sd * 7.4, x, 0, 2.4);
++  // --- bangku melingkari tiap air mancur ---
++  for (let k = 0; k < 4; k++) {
++    const a = (45 + k * 90) * D2R, fx = Math.cos(a) * 47, fz = Math.sin(a) * 47;
++    for (let j = 0; j < 4; j++) {
++      const bx = fx + Math.cos(j * Math.PI / 2) * 5.4, bz = fz + Math.sin(j * Math.PI / 2) * 5.4, g = new THREE.Group(); g.position.set(bx, 0, bz); g.rotation.y = Math.atan2(fx - bx, fz - bz); city.add(g);
++      mesh(box(2.4, 0.14, 0.6), M.wood, 0, 0.5, 0, g); mesh(box(2.4, 0.5, 0.1), M.wood, 0, 0.85, -0.3, g, false); for (const sx of [-1, 1]) mesh(box(0.14, 0.5, 0.5), M.plinth, sx * 1.0, 0.25, 0, g, false); col(bx, bz, 1.2);
++    }
++  }
++  // --- perapian berapi di kedua sisi tangga ---
++  for (const sd of [-1, 1]) {
++    const bx = -27.5, bz = sd * 14, g = new THREE.Group(); g.position.set(bx, 0, bz); city.add(g);
++    mesh(cyl(0.5, 0.65, 0.5, 8), M.plinth, 0, 0.25, 0, g); mesh(cyl(0.3, 0.4, 1.0, 8), M.plinth, 0, 1.0, 0, g); mesh(cyl(0.95, 0.55, 0.6, 12), M.iron, 0, 1.8, 0, g);
++    const f = mesh(new THREE.ConeGeometry(0.5, 1.3, 7), flameM, 0, 2.5, 0, g, false); flames.push(f); col(bx, bz, 1.0);
++  }
++  yield;
++  // ======================================================================
++
+   // ---------- patok lahan kosong (hanya jika masih ada distrik yang belum dibangun) ----------
+   const stakes = [];
+   for (const g of GATES) {   // patok di tepi jalan radial yang berbatasan dengan distrik yang belum dibangun
+@@ -1180,7 +1236,7 @@
+   yield;
+ 
+   // ---------- Pembaruan per frame: air mengalir ----------
+-  const upd = t => { T.water.offset.x = -t * 0.08; for (const q of spin) { q.m.rotation.y = t * q.k; q.m.position.y = q.y + Math.sin(t * 1.3 + q.k) * 0.25; } };
++  const upd = t => { T.water.offset.x = -t * 0.08; flames.forEach((f, i) => { f.scale.set(1 + 0.08 * Math.sin(t * 9 + i), 1 + 0.18 * Math.sin(t * 7 + i * 2), 1 + 0.08 * Math.sin(t * 9 + i)); }); for (const q of spin) { q.m.rotation.y = t * q.k; q.m.position.y = q.y + Math.sin(t * 1.3 + q.k) * 0.25; } };
+   return { group, update: upd };
+ }
+ 

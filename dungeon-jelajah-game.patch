@@ -1,0 +1,196 @@
+--- /mnt/user-data/uploads/game.js	2026-11-07 11:02:25.621925000 +0000
++++ game.js	2026-11-07 11:10:25.463446887 +0000
+@@ -12,6 +12,7 @@
+ import { kekaisaranDist, districtAt, DISTRICTS, GATES, inNwPlain, inNwTown, nwPlainAxis, nwAxisToWorld } from './kekaisaran-layout.js';
+ import { VILLAGES_BL } from './kekaisaran-dataran.js';
+ import { DUNGEON_TOWN, DUNGEON_GATES, MAIN_DUNGEON } from './kota-dungeon.js';
++import { buildDungeonJelajah, DJ } from './dungeon-jelajah.js';   // dungeon Kota Dungeon yang bisa dijelajahi (lorong + ruangan + gerbang ruang bos)
+ import { AULA, inAulaExit } from './kekaisaran-istana-layout.js';
+ import { DUSUN } from './meadow-village-layout.js';
+ import { buildSlime, buildGoblin, slimePose, goblinPose, makeBar } from './mobs.js';
+@@ -20,7 +21,7 @@
+ import { buildGolem, poseGolem, newGolemPose, ATTACK } from './golem.js';
+ 
+ const $ = id => document.getElementById(id);
+-const R = 18; // radius arena
++let R = 18; const ARENA_R = 18; // radius arena (ruang bos). Saat menjelajah dungeon, R dibuat sangat besar (lihat startExplore) supaya semua pembatas arena bundar tidak aktif; dikembalikan ke ARENA_R di ruang bos / dunia luar
+ const rnd = (a, b) => a + Math.random() * (b - a);
+ const COARSE = matchMedia('(pointer:coarse)').matches; // true di HP/tablet
+ 
+@@ -2163,7 +2164,7 @@
+   }
+   cavePose(e, dt, false);
+ }
+-function mkEnemy(boss, variant = 0) {   // variant (hanya Gua Kristal level 1-2): 0 = Pecahan Kristal (biru), 1 = Kristal Besar (ungu, lebih tangguh)
++function mkEnemy(boss, variant = 0, at = null) {   // at = {x, z}: posisi awal tertentu (dungeon jelajah); null = di tepi arena   // variant (hanya Gua Kristal level 1-2): 0 = Pecahan Kristal (biru), 1 = Kristal Besar (ungu, lebih tangguh)
+   const g = new THREE.Group(); let cry = null;
+   const mat = new THREE.MeshStandardMaterial({ color: boss ? (dgTheme ? DG_THEMES[dgTheme].bossBody : 0x2a1040) : 0x7a1f2b, roughness: 0.55, emissive: 0x000000 });
+   const glow = new THREE.MeshBasicMaterial({ color: boss ? (dgTheme ? DG_THEMES[dgTheme].bossGlow : 0xff3cf0) : 0xffe14a });
+@@ -2235,7 +2236,7 @@
+     add(new THREE.ConeGeometry(0.1, 0.55, 6), mat, -0.8, 0.9, 0.3).rotation.z = 1.2; add(new THREE.ConeGeometry(0.1, 0.55, 6), mat, 0.8, 0.9, 0.3).rotation.z = -1.2;
+   }
+   const a = camMode === 'depan' ? rnd(-Math.PI * 0.9, -Math.PI * 0.1) : rnd(0, Math.PI * 2); // mode depan: musuh muncul di depan kamera
+-  g.position.set(Math.cos(a) * (R - 3), 0, Math.sin(a) * (R - 3));
++  if (at) g.position.set(at.x, 0, at.z); else g.position.set(Math.cos(a) * (R - 3), 0, Math.sin(a) * (R - 3));
+   scene.add(g);
+   const e = { g, mat: mu ? mu.mat : se ? se.mat : fb ? fb.mat : ib ? ib.mat : kn ? kn.mat : cb ? cb.mat : mat, mixer: mu ? mu.mixer : se ? se.mixer : null, rig: mu ? mu.rig : null, mutant: !!mu, boss, hp: boss ? 260 : 50, max: boss ? 260 : 50, sp: boss ? (mu ? 3.4 : 2.4) : 3.2, r: boss ? (mu ? 1.7 : 1.3) : 0.9, cd: 1, wind: 0, flash: 0, kv: new THREE.Vector3(), stun: 0, orb: 2.5, slam: 6, chg: 4, atk: null, at: 0, rec: 0, rk: '', side: -1, ph: rnd(0, 6.28) };
+   if (cry) Object.assign(e, cry);
+@@ -2296,7 +2297,7 @@
+ function hurtEnemy(e, n, dir, force = 0, src = '') { // dir: arah dorong (ternormalisasi), force: kecepatan awal knockback, src: asal serangan ('s3' / 's6' = skill cahaya). Mengembalikan true bila pukulan DITANGKIS (kebal)
+   if (e.dying) return false; // sedang adegan slowmo
+   if (e.lightImmune && (src === 's3' || src === 's6')) { immuneFx(e); return true; } // Seraphim kebal elemen cahaya: skill 3 (Summon Blade) & skill 6 (Excalibur)
+-  e.hp -= n; e.flash = 0.12; if (e.wild) e.aggro = true; // monster hutan yang dipukul langsung marah
++  e.hp -= n; e.flash = 0.12; if (e.wild || e.xroom != null) e.aggro = true; // monster hutan yang dipukul langsung marah
+   if (dir && force) { e.kv.set(dir.x, 0, dir.z).multiplyScalar(force * (e.dragon || e.golem ? 0.1 : e.boss ? 0.3 : 1)); e.stun = e.dragon || e.golem ? 0 : e.boss ? 0.15 : 0.35; e.wind = 0; e.g.scale.setScalar(1); }
+   burst(e.g.position.clone().setY(e.dragon || e.golem ? 3 : 1.3), e.wild ? e.col : e.fx ? e.fx : e.golem ? 0xbfefff : e.dragon ? 0xff8a40 : e.boss ? 0xff60f0 : e.crystal ? 0x9fe8ff : 0xffd060, 10);
+   if (e.hp <= 0 && !e.wild && enemies.every(o => o === e || o.minion) && wave === WAVES.length - 1) { startKillCam(e); return; } // musuh terakhir: slowmo dulu
+@@ -2334,6 +2335,7 @@
+     player.position.y = world.palace.groundY(player.position.x, player.position.z, player.position.y); return;
+   }
+   if (state === 'world') { world.collide(player.position, PLAYER_R); world.clamp(player.position); if (!P.air) player.position.y = inKekaisaran ? world.kekGroundY(player.position.x, player.position.z) : 0; return; } // dunia luar: pohon & batas dunia (dataran + desa + Hutan Besar); di Kota Kekaisaran tinggi pemain mengikuti tangga istana
++  if (exploreMode && dgX) { dgX.collide(player.position, PLAYER_R); return; }   // menjelajah dungeon: dinding lorong & ruangan
+   { const hl = Math.hypot(player.position.x, player.position.z); if (hl > R - 1.5) { player.position.x *= (R - 1.5) / hl; player.position.z *= (R - 1.5) / hl; } } // tetap di dalam arena (hanya bidang xz)
+ }
+ // ---------- Skill Mutan: KRISTAL DARI TANAH (menjebak) + LONCAT & PUKUL ----------
+@@ -2587,6 +2589,7 @@
+         e.wind -= dt; e.g.scale.setScalar(1 + Math.sin(e.wind * 30) * 0.06);
+         if (e.wind <= 0) { e.g.scale.setScalar(1); if (dist < 2.4 + (e.r - 0.9)) hurtPlayer(e.dmg || 10); }
+       } else if (e.stun > 0) { /* sedang terpental */ }
++      else if (e.xroom != null && !xAggro(e, dist)) { /* dungeon jelajah: belum menyadari pemain */ }
+       else if (dist > 1.7) e.g.position.addScaledVector(d, e.sp * dt);
+       else if (e.cd <= 0) { e.wind = 0.5; e.cd = 1.6; }
+     }
+@@ -2594,6 +2597,7 @@
+       const s = e.g.position.clone().sub(o.g.position).setY(0), l = s.length();
+       if (l < 1.6 && l > 0.001) e.g.position.addScaledVector(s.normalize(), (1.6 - l) * 0.5);
+     }
++    if (exploreMode && dgX && e.xroom != null) dgX.collide(e.g.position, e.r * 0.75);   // musuh tidak menembus dinding dungeon
+   }
+   for (const o of [...orbs]) {
+     o.m.position.addScaledVector(o.v, dt); if (o.spin) o.m.rotation.x += o.spin * dt;
+@@ -4813,12 +4817,14 @@
+ const DUNGEON_WAVES = [2, 4, 'boss', 'dragon']; // level 1-2: musuh biasa, level 3: bos penyihir, level 4: bos naga
+ const KOTA_WAVES = [3, 6, 'boss'];   // semua dungeon Kota Dungeon (Gua Kristal di relung kiri lembah, Dungeon Cahaya di portal tengah, dst.): lebih banyak musuh biasa, bos level 3 = Mutan (monster.glb; cadangan: Penyihir Kristal), tanpa naga
+ let WAVES = DUNGEON_WAVES, golemMode = false, kotaMode = false, dgTheme = null;   // dgTheme: id dungeon tambahan yang sedang dimasuki (cahaya/kegelapan/api/es/batu); null = Gua Kristal / dungeon lain // golemMode: sedang di arena golem (lewat Pintu Penjaga) -> WAVES = GOLEM_WAVES
++let exploreMode = false, bossRoom = false, dgX = null, xLeft = 0, xBusy = false;   // exploreMode: sedang menjelajah dungeon Kota Dungeon (lorong + ruangan); bossRoom: sedang di ruang bos (arena bundar); dgX = dungeon jelajah yang sedang dibangun; xLeft = sisa musuh
++const BOSS_WAVES = ['boss'];   // ruang bos = hanya bos level 3 (musuh biasa kini ada di ruangan-ruangan dungeon jelajah)
+ let state = 'load', wave = 0, shake = 0, next = 0, camMode = 'orbit';
+ syncCam(); document.body.classList.add('orbit'); toast(matchMedia('(pointer:coarse)').matches ? 'Geser layar 1 jari: kiri-kanan memutar, atas-bawah menaik-turunkan kamera' : 'Klik layar untuk mengunci mouse, lalu gerakkan mouse: kiri-kanan memutar, atas-bawah menaik-turunkan kamera (Esc = lepas)', 5000);
+ function spawnWave() {
+   const w = WAVES[wave];
+   const bn = $('boss').querySelector('span');
+-  if (w === 'boss') { mkEnemy(true); bn.textContent = dgTheme ? DG_THEMES[dgTheme].boss : kotaMode ? (mutantGltf ? MUTANT.name : 'Velkaris, Penyihir Kristal') : 'Malzareth, Penyihir Kegelapan'; $('boss').hidden = false; $('wave').textContent = `Level ${wave + 1} / ${WAVES.length} — Bos`; }
++  if (w === 'boss') { mkEnemy(true); bn.textContent = dgTheme ? DG_THEMES[dgTheme].boss : kotaMode ? (mutantGltf ? MUTANT.name : 'Velkaris, Penyihir Kristal') : 'Malzareth, Penyihir Kegelapan'; $('boss').hidden = false; $('wave').textContent = bossRoom ? '👹 Ruang Bos' : `Level ${wave + 1} / ${WAVES.length} — Bos`; }
+   else if (w === 'dragon') { mkDragon(); bn.textContent = 'Vyrmgar, Naga Api Merah'; $('boss').hidden = false; $('wave').textContent = 'Level 4 — Pertarungan Terakhir'; }
+   else if (w === 'golem') { mkGolem(); bn.textContent = GOLEM.name; $('boss').hidden = false; $('wave').textContent = '🏛️ Penjaga Reruntuhan'; }
+   else { $('boss').hidden = true; for (let i = 0; i < w; i++) mkEnemy(false, kotaMode && wave === 1 && i % 3 === 2 ? 1 : 0); $('wave').textContent = `Level ${wave + 1} / ${WAVES.length}`; }
+@@ -4840,6 +4846,7 @@
+        // keluar dari Gua Kristal -> muncul di depan Gerbang Dungeon, Kota Dungeon
+   if (golemMode) { golemMode = false; WAVES = DUNGEON_WAVES; $('exit').textContent = '🌿 Keluar Dungeon'; }
+   if (kotaMode) { kotaMode = false; dgTheme = null; WAVES = DUNGEON_WAVES; $('exit').textContent = '🌿 Keluar Dungeon'; applyArenaTheme('asal'); }
++  exploreMode = false; bossRoom = false; R = ARENA_R; disposeExplore();   // keluar dari dungeon jelajah / ruang bos
+   const kOut = kId ? gateOut(kId) : KOTA_OUT;   // keluar dari dungeon tambahan -> muncul di depan gerbangnya
+   const startKota = !fromHole && !fromGolem && START_IN_KOTA;   // mulai permainan: muncul di Kota Dungeon
+   const inKek = !fromHole && !fromGolem && !startKota && START_IN_KEKAISARAN;   // mulai permainan: muncul di halaman istana Kota Kekaisaran, menghadap pintu agung
+@@ -5126,14 +5133,62 @@
+   const f = $('fade'); f.style.transition = 'opacity .5s'; f.style.opacity = 1;
+   setTimeout(() => { dgBusy = false; if (state !== 'world') return; enterKotaDungeon(id); }, 540);
+ }
+-function enterKotaDungeon(id = null) { // Gua Kristal: dungeon KEDUA (beda dari lubang di tengah dunia): tema biru-kristal, 3 level, bos Penyihir Kristal; keluar -> kembali ke Gerbang Dungeon di kota
+-  kotaMode = true; dgTheme = id; WAVES = KOTA_WAVES; wave = 0; next = 0; $('exit').textContent = '⚔️ Keluar ke Kota Dungeon';
+-  applyArenaTheme(id || 'kota'); audio.setScene('dungeon'); world.group.visible = false; arenaG.visible = true; scene.fog = arenaFog;
++function enterKotaDungeon(id = null) { // dungeon Kota Dungeon (Gua Kristal, Cahaya, Kegelapan, Api, Es, Batu): kini DUNGEON YANG BISA DIJELAJAHI (lorong + ruangan berisi musuh); ruang bos (arena bundar) ada di ujungnya lewat Gerbang Ruang Bos
++  kotaMode = true; dgTheme = id; $('exit').textContent = '⚔️ Keluar ke Kota Dungeon';
++  applyArenaTheme(id || 'kota'); audio.setScene('dungeon'); world.group.visible = false; scene.fog = arenaFog;
+   $('obj').hidden = true; if (vrm) vrm.scene.rotation.x = 0;
++  startExplore(); state = 'play';
++  banner(exploreName() + '\nJelajahi dungeon & kalahkan semua musuh\nGerbang Ruang Bos terbuka setelahnya', 3800); shake = 0.6; burst(player.position.clone().setY(0.2), id ? DG_THEMES[id].fx : 0x7fe9ff, 22, 4);
++  const f = $('fade'); f.style.transition = 'opacity .9s'; f.style.opacity = 0;
++}
++// ---------- Dungeon jelajah (Kota Dungeon): lorong + ruangan, gerbang bos terkunci sampai semua musuh kalah ----------
++const exploreName = () => dgTheme ? DG_THEMES[dgTheme].icon + ' ' + DG_THEMES[dgTheme].name : '💎 Gua Kristal';
++const bossName = () => dgTheme ? DG_THEMES[dgTheme].boss : mutantGltf ? MUTANT.name : 'Velkaris, Penyihir Kristal';
++const exploreHud = () => { $('wave').textContent = exploreName() + (xLeft > 0 ? ' — Musuh tersisa: ' + xLeft : ' — Gerbang Ruang Bos terbuka'); };
++function disposeExplore() { if (dgX) { dgX.dispose(); dgX = null; } }
++function startExplore() { // bangun denah (tetap untuk tiap dungeon), taruh musuh di tiap ruangan, pemain muncul di ruang awal
++  disposeExplore();
++  const key = dgTheme || 'kota';
++  dgX = buildDungeonJelajah(THREE, { id: key, theme: ARENA_THEMES[key], tex: floorMat.map, onGate: exploreGateGo, onExit: exploreExit, onHeal: exploreHeal });
++  scene.add(dgX.group);
++  exploreMode = true; bossRoom = false; R = 1e4; WAVES = KOTA_WAVES; wave = 0; next = 0; xBusy = false;   // R sangat besar = pembatas arena bundar (di skill, bos & musuh) tidak aktif selama menjelajah
++  arenaG.visible = false;
++  P.face = dgX.start.face; player.position.set(dgX.start.x, 0, dgX.start.z); player.rotation.set(0, P.face, 0); P.v.set(0, 0, 0); P.kb.set(0, 0, 0); P.push.set(0, 0, 0);
++  camYaw = P.face + Math.PI; cam.position.set(dgX.start.x - Math.sin(P.face) * 9, 5, dgX.start.z - Math.cos(P.face) * 9);
++  for (const sp of dgX.spawns) { const e = mkEnemy(false, sp.variant, sp); e.xroom = sp.room; }
++  xLeft = dgX.spawns.length; $('boss').hidden = true; exploreHud();
++}
++function xAggro(e, dist) { // musuh dungeon jelajah diam sampai pemain masuk ruangannya / mendekat (atau dipukul); sesudah itu terus mengejar
++  if (!e.aggro && dgX && (dist < 9 || dgX.roomAt(player.position.x, player.position.z) === e.xroom)) e.aggro = true;
++  return !!e.aggro;
++}
++function exploreTick(dt) {
++  if (!dgX || state !== 'play') return;
++  dgX.update(dt, clock.elapsedTime, player.position);
++  let n = 0; for (const e of enemies) if (e.xroom != null && !e.dying) n++;
++  if (n !== xLeft) { xLeft = n; exploreHud(); }
++  if (n === 0 && !dgX.gateOpen) { dgX.setGateOpen(true); exploreHud(); banner('🔓 Gerbang Ruang Bos terbuka!\nMasuklah ke gerbang bercahaya di ujung dungeon', 3800); burst(player.position.clone().setY(1), 0xffe27a, 18, 5); }
++}
++function exploreHeal(n, x, z) { P.hp = Math.min(P.max, P.hp + n); burst(new THREE.Vector3(x, 1.2, z), 0x6dff9c, 16, 4); toast('💚 Kristal penyembuh: +' + n + ' HP', 1800); }
++function exploreFade(then) { // layar memudar, lalu pindah (dipakai gerbang bos & pintu keluar)
++  if (xBusy) return; xBusy = true; stick.x = stick.y = 0; P.v.set(0, 0, 0);
++  const f = $('fade'); f.style.transition = 'opacity .6s'; f.style.opacity = 1;
++  setTimeout(() => { xBusy = false; if (state === 'play') then(); else f.style.opacity = 0; }, 650);
++}
++function exploreGateGo() { exploreFade(enterBossRoom); }
++function exploreExit() { exploreFade(() => restart(true)); }   // pintu keluar di ruang awal -> kembali ke Kota Dungeon
++function enterBossRoom() { // masuk ruang bos: arena bundar lama, hanya berisi bos level 3
++  exploreMode = false; bossRoom = true; R = ARENA_R; WAVES = BOSS_WAVES; wave = 0; next = 0;
++  if (dgX) dgX.group.visible = false; arenaG.visible = true; applyArenaTheme(dgTheme || 'kota'); scene.fog = arenaFog;
++  [...enemies].forEach(e => scene.remove(e.g)); enemies.length = 0;
++  P.hp = Math.min(P.max, P.hp + 30); P.kb.set(0, 0, 0); P.push.set(0, 0, 0);
+   player.position.set(0, 0, 0); player.rotation.set(0, 0, 0); P.face = 0; P.v.set(0, 0, 0); camYaw = 0; cam.position.set(0, 6, 13);
+-  state = 'play'; banner(id ? DG_THEMES[id].icon + ' ' + DG_THEMES[id].name + '\nKalahkan semua musuh' : '💎 Gua Kristal\nKalahkan semua musuh', 2600); spawnWave(); shake = 0.6; burst(player.position.clone().setY(0.2), id ? DG_THEMES[id].fx : 0x7fe9ff, 22, 4);
++  banner('👹 Ruang Bos\n' + bossName(), 2800); spawnWave(); shake = 0.6; burst(player.position.clone().setY(0.2), dgTheme ? DG_THEMES[dgTheme].fx : 0x7fe9ff, 22, 4);
+   const f = $('fade'); f.style.transition = 'opacity .9s'; f.style.opacity = 0;
+ }
++function restartExplore() { // kalah di dalam dungeon jelajah: mulai lagi dari ruang awal (denah sama, semua musuh kembali, kristal penyembuh pulih)
++  startExplore(); state = 'play'; $('msg').textContent = ''; banner(exploreName() + '\nMulai lagi dari pintu masuk', 2200);
++}
+ function startFall() { // melangkah ke lubang -> jatuh
+   clearWild(); audio.setScene(null); state = 'fall'; F.t = 0; stick.x = stick.y = 0; P.v.set(0, 0, 0); $('msg').textContent = ''; $('obj').hidden = true;
+   $('fade').style.transition = 'none';
+@@ -5200,6 +5255,7 @@
+   Object.values(SK).forEach(s => s.t = 0); waves.forEach(w => scene.remove(w.g)); waves.length = 0; player.position.set(0, 0, 0); P.v.set(0, 0, 0);
+   wave = 0; next = 0; $('boss').hidden = true; $('exit').hidden = true;
+   if (toWorld || loseInWorld) { const lost = loseInWorld; loseInWorld = false; enterWorld(true, lost ? 'Louis pingsan...\nTerbangun kembali di Dataran Hijau' : null); return; }
++  if (kotaMode && !bossRoom) { restartExplore(); return; }   // kalah di lorong / ruangan dungeon: ulang dungeon dari ruang awal (kalah di ruang bos: hanya bos yang diulang, di bawah)
+   state = 'play'; $('msg').textContent = ''; if (golemMode) golemSetup(); spawnWave();
+ }
+ 
+@@ -6000,11 +6056,12 @@
+     setDrawn(P.atk > 0 || P.drawT > 0);
+     P.heavy += ((P.drawT > 0 ? 1 : 0.3) - P.heavy) * (1 - Math.exp(-dt * (P.drawT > 0 ? 8 : 1.5))); // napas berat -> ringan
+     updateEnemies(dt); collidePlayer(); // musuh bergerak/terpental lalu cek tabrakan lagi
++    if (exploreMode) exploreTick(dt);   // dungeon jelajah: cahaya, kristal, gerbang bos, hitung musuh
+     if (state === 'world') wildSpawnTick(dt); // monster liar di hutan: muncul acak, hilang kalau jauh, darah pulih saat aman
+     qtTick(dt);
+     poseAndAnimate(dt, P.roll > 0 ? 0 : Math.min(1, P.v.length() / 5.5));
+     if (state === 'world') worldTick(); // petunjuk arah & cek masuk lubang
+-    if (state === 'play' && !enemies.length) {
++    if (state === 'play' && !exploreMode && !enemies.length) {   // (di dungeon jelajah tidak ada wave: gerbang bos dibuka oleh exploreTick)
+       if (wave === WAVES.length - 1) end(true);
+       else if ((next += dt) > 1.5) { next = 0; wave++; P.hp = Math.min(P.max, P.hp + 30); banner(WAVES[wave] === 'dragon' ? 'Level 4\nNaga Api Muncul!' : WAVES[wave] === 'boss' ? (dgTheme ? 'Level 3\nBos ' + DG_THEMES[dgTheme].boss.split(',')[0] : kotaMode && mutantGltf ? 'Level 3\nBos Mutan' : 'Level 3\nBos Penyihir') : `Level ${wave + 1}`); spawnWave(); }
+     }
+@@ -6042,10 +6099,12 @@
+     const D = Math.hypot(C.off.y, C.off.z), pit = orbit() ? camPitch : Math.atan2(C.off.y, C.off.z); // jarak tetap, sudut naik-turun bebas di mode 360°
+     const off = new THREE.Vector3(C.off.x, Math.sin(pit) * D, Math.cos(pit) * D).multiplyScalar(zoomS * (1 - 0.3 * slowK)).applyAxisAngle(UP, camYaw); // slowmo: kamera mendekat
+     const want = target.clone().add(off);
++    if (exploreMode && dgX) dgX.clipCam(player.position, want);               // kamera tidak menembus dinding dungeon
+     if (inPalace) world.palace.clipCam(player.position, want);               // tidak menembus dinding / langit-langit istana
+     if (inAula) world.aula.clipCam(player.position, want);                   // sama untuk Aula Raja
+     if (inInn) world.inn.clipCam(player.position, want);                     // dan Penginapan Karavan
+     cam.position.lerp(want, Math.min(1, rdt * 4));
++    if (exploreMode && dgX) dgX.clipCam(player.position, cam.position);
+     if (inPalace) world.palace.clipCam(player.position, cam.position);       // peralihan halus tadi pun tidak boleh sempat di luar dinding
+     if (inAula) world.aula.clipCam(player.position, cam.position);
+     if (inInn) world.inn.clipCam(player.position, cam.position);

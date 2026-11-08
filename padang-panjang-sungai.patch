@@ -1,0 +1,308 @@
+diff --git a/meadow-layout.js b/meadow-layout.js
+index ba054b8..73f69da 100644
+--- a/meadow-layout.js
++++ b/meadow-layout.js
+@@ -1,7 +1,7 @@
+ // ============================================================
+ //  PADANG RUMPUT ARUNIKA — data tata letak (murni angka, tanpa THREE)
+ //  Hamparan rumput hijau yang panjang di sebelah timur Kota Arunika. Mulai dari Gerbang Timur kota (city-layout.js: EAST_GATE),
+-//  lalu jalan tanah berkelok ke timur sepanjang ±750 m, dan (nanti) berujung di Kota Kekaisaran.
++//  lalu jalan tanah berkelok ke timur sepanjang ±1.600 m (melewati Sungai Bening dan jembatan kayunya), dan (nanti) berujung di Kota Kekaisaran.
+ //  Dipakai oleh meadow.js (membangun isi padang), world.js (chunk), forest-layout.js (batas dunia) dan game.js (pesan masuk padang).
+ //
+ //  Dunia tetap satu hamparan: area jelajahnya = rantai lingkaran di sepanjang jalan (koridor selebar ±85 m),
+@@ -11,17 +11,21 @@ import { CITY, EAST_GATE } from './city-layout.js';
+ 
+ export const MEADOW = { name: 'Padang Rumput Arunika' };
+ 
+-// Kota Kekaisaran (BELUM dibangun). open: false -> jalan berakhir di gerbang perbatasan kayu yang tertutup.
+-// Nanti: ubah open ke true, hapus gerbang tertutup di meadow.js (blok "perbatasan"), dan sambungkan area jelajah ke kota kekaisaran.
+-export const IMPERIAL = { name: 'Kota Kekaisaran', open: false, x: 1196, z: 116 };
+-
+ const GZ = CITY.z + EAST_GATE.v;                 // z tengah Gerbang Timur kota (world)
+ const GX = CITY.x + 100;                         // tepi timur lantai batu kota: jalan tanah mulai dari sini
+ 
+-// titik kendali jalan (world). Kurva S yang landai: naik ke tenggara, turun lagi, lalu naik pelan menuju Kota Kekaisaran.
++// Kota Kekaisaran (BELUM dibangun). open: false -> jalan berakhir di gerbang perbatasan kayu yang tertutup.
++// Nanti: ubah open ke true, hapus gerbang tertutup di meadow.js (blok "perbatasan"), dan sambungkan area jelajah ke kota kekaisaran.
++export const IMPERIAL = { name: 'Kota Kekaisaran', open: false, x: GX + 1570, z: GZ + 58 };
++
++// titik kendali jalan (world). Kurva S yang landai dan panjang: naik ke tenggara, turun lagi, naik, turun ke utara, lalu naik pelan menuju Kota Kekaisaran.
++// (Sampai GX + 690 sama seperti semula; sesudahnya ditambah ±880 m.)
+ export const MEADOW_ROAD = [
+   [GX, GZ], [GX + 40, GZ + 2], [GX + 90, GZ + 10], [GX + 150, GZ + 24], [GX + 210, GZ + 36], [GX + 270, GZ + 40], [GX + 330, GZ + 34],
+-  [GX + 390, GZ + 22], [GX + 450, GZ + 12], [GX + 510, GZ + 10], [GX + 570, GZ + 18], [GX + 630, GZ + 30], [GX + 690, GZ + 40], [IMPERIAL.x, IMPERIAL.z],
++  [GX + 390, GZ + 22], [GX + 450, GZ + 12], [GX + 510, GZ + 10], [GX + 570, GZ + 18], [GX + 630, GZ + 30], [GX + 690, GZ + 40],
++  [GX + 750, GZ + 46], [GX + 815, GZ + 48], [GX + 880, GZ + 42], [GX + 945, GZ + 30], [GX + 1010, GZ + 16], [GX + 1075, GZ + 4],
++  [GX + 1140, GZ - 4], [GX + 1205, GZ - 4], [GX + 1270, GZ + 6], [GX + 1335, GZ + 20], [GX + 1400, GZ + 36], [GX + 1465, GZ + 50],
++  [GX + 1520, GZ + 56], [IMPERIAL.x, IMPERIAL.z],
+ ];
+ 
+ // Catmull-Rom 2D -> titik rapat (±6 m)
+@@ -71,12 +75,43 @@ export function roadDist(x, z) {
+   return { d: m, s };
+ }
+ 
+-// Padang dibangun dalam 3 chunk (urut dari kota): batas x tiap bagian. Tiap chunk hanya digambar saat pemain cukup dekat.
+-export const MEADOW_SEG_X = [GX, GX + 255, GX + 505, IMPERIAL.x + 60];
++// ---------- Sungai Bening ----------
++// Sungai lebar yang memotong padang dari utara ke selatan sambil berkelok. Satu-satunya jalan ke seberang = jembatan kayu tempat jalan tanah lewat
++// (tepi air ditutup collider di meadow.js). Bentuk alirannya ditulis dalam "bingkai jalan" di titik silang: a = searah jalan, b = tegak lurus jalan (+ = selatan),
++// jadi di jembatan sungai selalu tegak lurus jalan, ke mana pun jalan itu menghadap. Aliran: dari utara (b negatif) ke selatan.
++export const RIVER = { name: 'Sungai Bening', s: 430, w: 10, mud: 1.6 };   // s = jarak titik silang dari gerbang kota (m sepanjang jalan), w = lebar air, mud = lebar tepi lumpur di tiap sisi
++const RIVER_SHAPE = [[22, -122], [30, -98], [22, -74], [6, -52], [-8, -32], [-1.5, -12], [0, 0], [1.5, 12], [10, 32], [24, 54], [30, 78], [20, 102], [4, 124]];   // [a, b]
++const RC = roadAt(RIVER.s), RN = { x: -RC.tz, z: RC.tx };                    // RC = titik silang di jalan, RN = arah "selatan" tegak lurus jalan
++// titik-titik rapat (±1,5 m) di sepanjang aliran, dipotong sampai ±24 m di luar tepi padang (sisanya tertutup sabuk pohon / bukit)
++export const RIVER_PTS = (() => {
++  const all = smooth(RIVER_SHAPE.map(([a, b]) => [RC.x + RC.tx * a + RN.x * b, RC.z + RC.tz * a + RN.z * b]), 16);
++  let c = 0, best = Infinity; all.forEach((p, i) => { const d = Math.hypot(p.x - RC.x, p.z - RC.z); if (d < best) { best = d; c = i; } });
++  let i0 = c, i1 = c;
++  while (i0 > 0 && meadowDist(all[i0].x, all[i0].z) < 24) i0--;
++  while (i1 < all.length - 1 && meadowDist(all[i1].x, all[i1].z) < 24) i1++;
++  return all.slice(i0, i1 + 1);
++})();
++// jembatan kayu: berpusat di titik silang, memanjang searah jalan. len = panjang (tepi ke tepi, melewati lumpur), w = lebar lantai
++export const RIVER_BRIDGE = { x: RC.x, z: RC.z, tx: RC.tx, tz: RC.tz, yaw: Math.atan2(RC.tx, RC.tz), len: RIVER.w + 2 * (RIVER.mud + 1.6), w: 4.8 };
++const RB = (() => {   // kotak pembatas sungai (+ margin) supaya riverEdge() murah untuk titik yang jauh dari sungai
++  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
++  for (const p of RIVER_PTS) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
++  const m = RIVER.w / 2 + 30; return { x0: x0 - m, x1: x1 + m, z0: z0 - m, z1: z1 + m };
++})();
++// jarak ke tepi air terdekat (m): negatif = di dalam air. Untuk titik yang jauh dari sungai (> ±30 m dari kotaknya) nilainya cuma "besar" (99), bukan jarak sebenarnya.
++export function riverEdge(x, z) {
++  if (x < RB.x0 || x > RB.x1 || z < RB.z0 || z > RB.z1) return 99;
++  let m = Infinity; for (let i = 0; i < RIVER_PTS.length; i++) { const p = RIVER_PTS[i], d = Math.hypot(x - p.x, z - p.z); if (d < m) m = d; }
++  return m - RIVER.w / 2;
++}
++
++// Padang dibangun dalam beberapa chunk (urut dari kota, ±260 m per bagian; bagian terakhir sedikit lebih panjang): batas x tiap bagian.
++// Tiap chunk hanya digambar saat pemain cukup dekat. Sungai & jembatan dimiliki chunk yang memuat titik silangnya (lihat meadow.js).
++export const MEADOW_SEG_X = (() => { const END = IMPERIAL.x + 60, xs = [GX]; while (xs[xs.length - 1] + 260 * 1.4 < END) xs.push(xs[xs.length - 1] + 260); xs.push(END); return xs; })();
+ 
+ // Titik-titik khusus (dipakai meadow.js & bisa dipakai misi nanti)
+ export const MEADOW_SPOTS = {
+   rest: roadAt(MEADOW_LEN * 0.5),     // pos istirahat di tengah perjalanan
+   signEvery: 125,                     // papan petunjuk tiap sekian m sepanjang jalan
+-  ponds: [{ s: 170, side: -1, off: 24, r: 7 }, { s: 560, side: 1, off: 26, r: 8.5 }],   // kolam: s = jarak sepanjang jalan, side = sisi (-1 kiri/utara, 1 kanan/selatan), off = jarak dari jalan
++  ponds: [{ s: 170, side: -1, off: 24, r: 7 }, { s: 560, side: 1, off: 26, r: 8.5 }, { s: 1040, side: -1, off: 24, r: 7.5 }, { s: 1330, side: 1, off: 26, r: 8.5 }],   // kolam: s = jarak sepanjang jalan, side = sisi (-1 kiri/utara, 1 kanan/selatan), off = jarak dari jalan
+ };
+diff --git a/meadow.js b/meadow.js
+index 97ae430..34a0408 100644
+--- a/meadow.js
++++ b/meadow.js
+@@ -1,12 +1,12 @@
+ import * as THREE from 'three';
+ import { cityDist } from './city-layout.js';
+-import { IMPERIAL, PERBATASAN, MEADOW_PTS, MEADOW_LEN, MEADOW_CIRCLES, MEADOW_SEG_X, MEADOW_SPOTS, meadowDist, roadAt } from './meadow-layout.js';
++import { IMPERIAL, PERBATASAN, MEADOW_PTS, MEADOW_LEN, MEADOW_CIRCLES, MEADOW_SEG_X, MEADOW_SPOTS, RIVER, RIVER_PTS, RIVER_BRIDGE, riverEdge, meadowDist, roadAt } from './meadow-layout.js';
+ 
+ // ============================================================
+ //  Membangun satu BAGIAN Padang Rumput Arunika (dipanggil dari world.js, satu chunk per bagian — lihat MEADOW_SEG_X).
+ //  Isinya: bercak warna tanah, jalan tanah berkelok, ribuan rumput tinggi yang bergoyang, ladang bunga, sabuk pohon di tepi padang,
+-//  rumpun pohon & pohon tunggal, semak, batu, bukit jauh, kolam, papan petunjuk jarak, pos istirahat,
+-//  dan (di bagian terakhir) gerbang perbatasan kayu yang masih tertutup menuju Kota Kekaisaran.
++//  rumpun pohon & pohon tunggal, semak, batu, bukit jauh, kolam, Sungai Bening + jembatan kayunya (di bagian yang memuat titik silang sungai),
++//  papan petunjuk jarak, pos istirahat, dan (di bagian terakhir) gerbang perbatasan kayu yang masih tertutup menuju Kota Kekaisaran.
+ //  Generator: tiap `yield` = titik berhenti (ChunkManager melanjutkannya di frame berikutnya, jadi tidak ada frame yang tersendat).
+ //  Objek-objek banyak dibagi per "petak" (InstancedMesh per sel) supaya kamera hanya menggambar yang terlihat.
+ // ============================================================
+@@ -34,7 +34,7 @@ export function* buildMeadowGen(o) {
+   const restP = MEADOW_SPOTS.rest; features.push({ x: restP.x, z: restP.z, r: 10 });
+   const ponds = MEADOW_SPOTS.ponds.map(d => { const p = side(d.s, d.side, d.off); return { ...p, r: d.r }; });
+   for (const p of ponds) features.push({ x: p.x, z: p.z, r: p.r + 4.5 });
+-  const nearFeature = (x, z, pad = 0) => { for (const f of features) if (Math.hypot(x - f.x, z - f.z) < f.r + pad) return true; return false; };
++  const nearFeature = (x, z, pad = 0) => { for (const f of features) if (Math.hypot(x - f.x, z - f.z) < f.r + pad) return true; return riverEdge(x, z) < pad + RIVER.mud + 1; };   // sungai + tepi lumpurnya juga tempat khusus
+   // pagar perbatasan (garis tegak lurus jalan): koordinat (a: sepanjang jalan, b: menyamping)
+   const PB = PERBATASAN, pbn = { x: -PB.tz, z: PB.tx }, pbHas = IMPERIAL.open ? false : true;
+   const pbAB = (x, z) => ({ a: (x - PB.x) * PB.tx + (z - PB.z) * PB.tz, b: (x - PB.x) * pbn.x + (z - PB.z) * pbn.z });
+@@ -68,7 +68,7 @@ export function* buildMeadowGen(o) {
+       const peb = new THREE.InstancedMesh(pebG, std(0x8d8a85), pebN); let pn = 0;
+       for (let k = 0; k < pebN * 3 && pn < pebN; k++) {
+         const p = pts[(rand() * (pts.length - 1)) | 0], q = pts[Math.min(pts.length - 1, (pts.indexOf(p)) + 1)], l = Math.hypot(q.x - p.x, q.z - p.z) || 1, nx = -(q.z - p.z) / l, nz = (q.x - p.x) / l, off = R(-3.4, 3.4);
+-        if (Math.abs(off) < 1.5) continue;
++        if (Math.abs(off) < 1.5 || riverEdge(p.x + nx * off, p.z + nz * off) < 1.5) continue;   // kerikil jangan menyembul di air sungai
+         const sc = R(0.07, 0.2); dummy.position.set(p.x + nx * off, sc * 0.3, p.z + nz * off); dummy.rotation.set(R(0, 3), R(0, 6), R(0, 3)); dummy.scale.set(sc * R(1, 1.5), sc * 0.6, sc * R(1, 1.5)); dummy.updateMatrix();
+         peb.setMatrixAt(pn, dummy.matrix); const g = R(0.7, 1.15); peb.setColorAt(pn, tmpC.setRGB(g, g, g * 0.97)); pn++;
+       }
+@@ -250,7 +250,7 @@ export function* buildMeadowGen(o) {
+   { const E = MEADOW_SPOTS.signEvery;
+     if (seg === 0) signPost(...(() => { const p = side(14, 1, 4.2), q = roadAt(14); return [p.x, p.z, q.x, q.z]; })(), e => [{ text: 'PADANG ARUNIKA', sub: 'Hamparan rumput ke timur', arrow: 0 }, { text: 'KOTA KEKAISARAN', sub: Math.round(MEADOW_LEN / 10) * 10 + ' m', arrow: e }]);
+     for (let s = E, k = 0; s < MEADOW_LEN - 60; s += E, k++) {
+-      const p = roadAt(s); if (!inSeg(p.x) || Math.abs(s - restP.s) < 26) continue;
++      const p = roadAt(s); if (!inSeg(p.x) || Math.abs(s - restP.s) < 26 || Math.abs(s - RIVER.s) < 22) continue;   // jangan di pos istirahat / jembatan
+       let sd = k % 2 ? -1 : 1, q = side(s, sd, 4.0); if (nearFeature(q.x, q.z, 1)) { sd = -sd; q = side(s, sd, 4.0); }
+       signPost(q.x, q.z, p.x, p.z, e => [{ text: 'KOTA KEKAISARAN', sub: Math.round((MEADOW_LEN - s) / 10) * 10 + ' m', arrow: e }, { text: 'KOTA ARUNIKA', sub: Math.round(s / 10) * 10 + ' m', arrow: -e }]);
+     }
+@@ -272,7 +272,112 @@ export function* buildMeadowGen(o) {
+     { const q = side(restP.s + 9, -1, 5.2); signPost(q.x, q.z, restP.x, restP.z, () => [{ text: 'POS ISTIRAHAT', sub: 'Duduklah, perjalanan masih jauh', arrow: 0 }], 1, 2.0, 0.55); }
+   }
+ 
+-  // ---------- 11) Gerbang perbatasan menuju Kota Kekaisaran (BELUM dibuka) ----------
++  // ---------- 11) Sungai Bening: air mengalir, tepi lumpur, batu & alang-alang, jembatan kayu tempat jalan tanah menyeberang ----------
++  // Sungai & jembatan dibangun oleh bagian yang memuat titik-titiknya (di tata letak sekarang: satu bagian saja). Tepi air ditutup collider rapat,
++  // jadi pemain/benda tak bisa masuk ke air: satu-satunya jalan ke seberang = jembatan. (Air datar di y ≈ 0,05 seperti kolam; tanah dasar tidak dilubangi.)
++  let animate = null;   // dipanggil world.js tiap frame saat bagian ini tampil (air mengalir)
++  { let r0 = -1, r1 = -1; RIVER_PTS.forEach((p, i) => { if (inSeg(p.x)) { if (r0 < 0) r0 = i; r1 = i; } });
++    if (r0 >= 0) {
++      const hw = RIVER.w / 2, BR = RIVER_BRIDGE;
++      const a0 = Math.max(0, r0 - 1), a1 = Math.min(RIVER_PTS.length - 1, r1 + 1), pts = RIVER_PTS.slice(a0, a1 + 1);   // +1 titik di tiap sisi: pita antar-bagian tersambung
++      const own = pts.slice(r0 - a0, r1 - a0 + 1);                                                                         // titik milik bagian ini (hiasan tepi tidak dobel di bagian tetangga)
++      const bw = (lx, lz) => ({ x: BR.x + BR.tx * lz + BR.tz * lx, z: BR.z + BR.tz * lz - BR.tx * lx });                    // titik lokal jembatan (lx menyamping, lz sepanjang jalan) -> dunia
++      const nearBridge = (x, z, pad) => { const dx = x - BR.x, dz = z - BR.z; return Math.abs(dx * BR.tx + dz * BR.tz) < BR.len / 2 + pad && Math.abs(dx * BR.tz - dz * BR.tx) < BR.w / 2 + pad; };
++      const norm = (arr, i) => { const a = arr[Math.max(0, i - 1)], b = arr[Math.min(arr.length - 1, i + 1)], dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1; return { x: -dz / l, z: dx / l }; };   // tegak lurus arah alir
++      const strip = (w, y, vRep) => {   // pita datar selebar tetap mengikuti sungai (u = 0..1 melintang sungai, v = sepanjang aliran)
++        const pos = [], nor = [], uv = [], idx = []; let len = 0;
++        for (let i = 0; i < pts.length; i++) {
++          const p = pts[i], a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
++          let dx = b.x - a.x, dz = b.z - a.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
++          if (i) len += Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z);
++          pos.push(p.x - dz * w / 2, y, p.z + dx * w / 2, p.x + dz * w / 2, y, p.z - dx * w / 2); nor.push(0, 1, 0, 0, 1, 0); uv.push(0, len / vRep, 1, len / vRep);
++          if (i) { const k = i * 2; idx.push(k - 2, k, k - 1, k - 1, k, k + 1); }
++        }
++        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); return g;
++      };
++      const flowTex = (W, H, draw) => { const c = document.createElement('canvas'); c.width = W; c.height = H; draw(c.getContext('2d'), W, H); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.ClampToEdgeWrapping; t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t; };
++      const waterTex = flowTex(128, 256, (x, W, H) => {   // tengah sungai lebih dalam (gelap), tepinya dangkal (terang), riak memanjang searah aliran
++        const g = x.createLinearGradient(0, 0, W, 0); g.addColorStop(0, '#79bfca'); g.addColorStop(0.16, '#4a98b4'); g.addColorStop(0.5, '#1f6688'); g.addColorStop(0.84, '#4a98b4'); g.addColorStop(1, '#79bfca');
++        x.fillStyle = g; x.fillRect(0, 0, W, H);
++        for (let i = 0; i < 40; i++) { const px = W * (0.1 + rand() * 0.8), py = rand() * H, l = 16 + rand() * 40; x.strokeStyle = `rgba(205,236,248,${0.1 + rand() * 0.2})`; x.lineWidth = 1 + rand() * 1.5;
++          for (const oy of [-H, 0, H]) { x.beginPath(); x.moveTo(px, py + oy); x.quadraticCurveTo(px + (rand() - 0.5) * 8, py + oy + l / 2, px + (rand() - 0.5) * 4, py + oy + l); x.stroke(); } }
++      });
++      const glintTex = flowTex(128, 256, (x, W, H) => {   // kilau putih tipis di lapisan kedua, mengalir lebih cepat dari air (memberi kesan kedalaman)
++        for (let i = 0; i < 26; i++) { const px = rand() * W, py = rand() * H, l = 8 + rand() * 22; x.strokeStyle = `rgba(255,255,255,${0.35 + rand() * 0.45})`; x.lineWidth = 1 + rand() * 1.2;
++          for (const oy of [-H, 0, H]) { x.beginPath(); x.moveTo(px, py + oy); x.lineTo(px + (rand() - 0.5) * 5, py + oy + l); x.stroke(); } }
++      });
++      // tepi lumpur (di bawah jalan: y lebih rendah dari jalan 0,017) -> air -> kilau
++      const mud = mesh(ribbon(pts, RIVER.w + 2 * RIVER.mud + 1, 3.2), new THREE.MeshStandardMaterial({ map: tex.dirt, color: 0xc4b48f, roughness: 1, transparent: true, alphaMap: tex.edgeAlpha(), depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), 0, 0.0145, 0); mud.castShadow = false;
++      // air & kilau SENGAJA tanpa polygonOffset: world.js fixDecals() memajukan semua material "decal" (transparan + depthWrite:false + polygonOffset) ke urutan gambar paling awal,
++      // padahal kilau harus tergambar SETELAH air. Cukup dipisah tinggi (tanah 0 < tepi lumpur 0,0145 < jalan 0,017 < air 0,055 < kilau 0,07 < daun teratai 0,085).
++      const water = new THREE.Mesh(strip(RIVER.w, 0.055, 9), new THREE.MeshStandardMaterial({ map: waterTex, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.93 }));
++      water.receiveShadow = true; group.add(water);
++      const glint = new THREE.Mesh(strip(RIVER.w * 0.9, 0.07, 7), new THREE.MeshStandardMaterial({ map: glintTex, roughness: 0.3, transparent: true, opacity: 0.7, depthWrite: false }));
++      group.add(glint);
++      animate = t => { waterTex.offset.y = -t * 0.1; glintTex.offset.y = -t * 0.22; };
++      yield;
++
++      // batu-batu kecil di tepi air
++      { const rg = jitter(prep(new THREE.DodecahedronGeometry(1, 0)), 0.18), rl = [];
++        own.forEach((p, i) => { const n = norm(own, i); for (const sd of [-1, 1]) { if (rand() < 0.45) continue; const off = hw + R(0.1, 1.2), x = p.x + n.x * sd * off, z = p.z + n.z * sd * off; if (!nearBridge(x, z, 1.5)) rl.push({ x, z, s: R(0.22, 0.65) }); } });
++        if (rl.length) { const im = new THREE.InstancedMesh(rg, std(0x8a8a8e), rl.length);
++          rl.forEach((r, i) => { dummy.position.set(r.x, r.s * 0.2, r.z); dummy.rotation.set(R(0, 3), R(0, 6), R(0, 3)); dummy.scale.set(r.s * R(1, 1.4), r.s * R(0.6, 0.95), r.s * R(1, 1.4)); dummy.updateMatrix(); im.setMatrixAt(i, dummy.matrix); const g = R(0.75, 1.15); im.setColorAt(i, tmpC.setRGB(g, g, g * R(0.95, 1.05))); });
++          im.castShadow = im.receiveShadow = true; group.add(im); }
++      }
++      // alang-alang (rumpun 2-4 batang) di kedua tepi
++      { const rl = [];
++        own.forEach((p, i) => { if (i % 2) return; const n = norm(own, i); for (const sd of [-1, 1]) { if (rand() < 0.5) continue; const k = 2 + ((rand() * 3) | 0);
++          for (let j = 0; j < k; j++) { const off = hw + R(-0.5, 1.1), t = R(-0.8, 0.8), x = p.x + n.x * sd * off + n.z * t, z = p.z + n.z * sd * off - n.x * t; if (!nearBridge(x, z, 1.5)) rl.push({ x, z }); } } });
++        if (rl.length) {
++          const rg = new THREE.CylinderGeometry(0.025, 0.03, 1.5, 4).translate(0, 0.75, 0), tg = new THREE.CylinderGeometry(0.06, 0.06, 0.28, 6).translate(0, 1.55, 0);
++          const reeds = new THREE.InstancedMesh(rg, new THREE.MeshStandardMaterial({ color: 0x5f8a34, roughness: 1 }), rl.length), tops = new THREE.InstancedMesh(tg, new THREE.MeshStandardMaterial({ color: 0x6b4a2d, roughness: 1 }), rl.length);
++          rl.forEach((r, i) => { dummy.position.set(r.x, 0, r.z); dummy.rotation.set(R(-0.12, 0.12), 0, R(-0.12, 0.12)); dummy.scale.setScalar(R(0.7, 1.3)); dummy.updateMatrix(); reeds.setMatrixAt(i, dummy.matrix); tops.setMatrixAt(i, dummy.matrix); });
++          reeds.frustumCulled = tops.frustumCulled = false; group.add(reeds, tops); }
++      }
++      // daun teratai
++      { const pl = [];
++        for (let k = 0; k < 18; k++) { const i = (rand() * own.length) | 0, n = norm(own, i), off = (rand() < 0.5 ? -1 : 1) * R(2.2, hw - 0.8), x = own[i].x + n.x * off, z = own[i].z + n.z * off; if (!nearBridge(x, z, 1.5)) pl.push({ x, z }); }
++        if (pl.length) { const pads = new THREE.InstancedMesh(new THREE.CircleGeometry(0.42, 10).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x3f8a3a, roughness: 1, side: THREE.DoubleSide }), pl.length);
++          pl.forEach((q, i) => { dummy.position.set(q.x, 0.085, q.z); dummy.rotation.set(0, rand() * 6, 0); dummy.scale.setScalar(R(0.7, 1.4)); dummy.updateMatrix(); pads.setMatrixAt(i, dummy.matrix); });
++          group.add(pads); }
++      }
++      // tabrakan di tepi air: lingkaran rapat (≤ 1,4 m) di sepanjang kedua tepi. Di sekitar jembatan dilubangi, lalu ditutup lagi oleh "sumbat" di samping pagar jembatan.
++      for (const sd of [-1, 1]) {
++        const line = pts.map((p, i) => { const n = norm(pts, i); return { x: p.x + n.x * sd * (hw - 0.2), z: p.z + n.z * sd * (hw - 0.2) }; });
++        for (let i = 0; i < line.length; i++) {
++          const a = line[i], b = line[i + 1] || a, k = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 1.4)), last = i === line.length - 1;
++          for (let j = 0; j < (last ? 1 : k); j++) { const x = a.x + (b.x - a.x) * j / k, z = a.z + (b.z - a.z) * j / k; if (!nearBridge(x, z, 0.9)) colliders.push({ x, z, r: 0.9 }); }
++        }
++      }
++      if (inSeg(BR.x)) for (const sv of [-1, 1]) for (const sl of [-1, 1]) colliders.push({ ...bw(sv * (BR.w / 2 + 0.9), sl * (hw - 0.2)), r: 0.9 });
++      yield;
++
++      // ----- jembatan kayu (di titik silang, searah jalan): lantai papan, pagar + tiang lentera di keempat sudut -----
++      if (inSeg(BR.x)) {
++        const L = BR.len, W = BR.w, bg = new THREE.Group(); bg.position.set(BR.x, 0, BR.z); bg.rotation.y = BR.yaw; group.add(bg);
++        const nP = Math.round(L / 0.46), planks = new THREE.InstancedMesh(box(W, 0.1, 0.42), std(0xffffff), nP);
++        for (let i = 0; i < nP; i++) { dummy.position.set(0, 0.11, -L / 2 + 0.23 + i * 0.46); dummy.rotation.set(0, R(-0.012, 0.012), 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); planks.setMatrixAt(i, dummy.matrix); planks.setColorAt(i, tmpC.setHex(0x8b6338).multiplyScalar(R(0.78, 1.1))); }
++        planks.castShadow = planks.receiveShadow = true; bg.add(planks);
++        const postG = new THREE.CylinderGeometry(0.09, 0.11, 1.35, 6), nPost = Math.round(L / 2.2);
++        for (const sx of [-1, 1]) {
++          const rx = sx * (W / 2 + 0.1);
++          mesh(box(0.3, 0.22, L), timber, sx * (W / 2 - 0.6), 0, 0, bg);                                                   // balok penyangga di bawah lantai
++          mesh(box(0.14, 0.14, L + 0.2), timber, rx, 1.0, 0, bg); mesh(box(0.1, 0.1, L + 0.2), timber, rx, 0.58, 0, bg);    // dua palang pagar
++          for (let i = 0; i <= nPost; i++) mesh(postG, timber, rx, 0.55, -L / 2 + i * L / nPost, bg);
++          for (let lz = -L / 2; lz <= L / 2 + 0.01; lz += 0.5) colliders.push({ ...bw(rx, lz), r: 0.24 });                   // pagar: tidak bisa melompat ke sungai dari jembatan
++          for (const sz of [-1, 1]) {                                                                                      // tiang lentera di sudut
++            const lz = sz * (L / 2);
++            mesh(new THREE.CylinderGeometry(0.08, 0.1, 2.3, 6), timber, rx, 1.15, lz, bg); mesh(box(0.3, 0.38, 0.3), lanternMat, rx, 2.45, lz, bg).castShadow = false; mesh(box(0.42, 0.08, 0.42), timber, rx, 2.7, lz, bg);
++          }
++        }
++      }
++      // papan nama di sisi barat jembatan (arah datang dari kota)
++      { const q = side(Math.max(0, RIVER.s - 15), 1, 4.8), p = roadAt(Math.max(0, RIVER.s - 15)); if (inSeg(q.x)) signPost(q.x, q.z, p.x, p.z, () => [{ text: RIVER.name.toUpperCase(), sub: 'Seberangi lewat jembatan kayu', arrow: 0 }], 1, 2.0, 0.55); }
++    }
++  }
++  yield;
++
++  // ---------- 12) Gerbang perbatasan menuju Kota Kekaisaran (BELUM dibuka) ----------
+   if (pbHas && inSeg(PB.x)) {
+     const E = (b, a = 0) => ({ x: PB.x + PB.tx * a + pbn.x * b, z: PB.z + PB.tz * a + pbn.z * b });   // titik di garis pagar (b menyamping, a maju-mundur)
+     const gateB = PB.gap + 2.0, beamYaw = Math.atan2(-pbn.z, pbn.x), logBase = std(0x6b4a2d), logVar = std(0x5b3d22);
+@@ -311,7 +416,7 @@ export function* buildMeadowGen(o) {
+   }
+   yield;
+ 
+-  return { group };
++  return { group, update: animate };   // update(t): animasi aliran sungai (null bila bagian ini tidak memuat sungai)
+ }
+ 
+ export function buildMeadow(opts) { const it = buildMeadowGen(opts); let r; while (!(r = it.next()).done); return r.value; }
+diff --git a/world.js b/world.js
+index 2057f99..ee5bd45 100644
+--- a/world.js
++++ b/world.js
+@@ -21,7 +21,7 @@ import { ChunkManager, CHUNK_CFG } from './chunks.js';
+ //    1) 'hutan-desa' = dataran + lubang dungeon + Desa Padang Hijau + Hutan Besar/Dalam (+ Gerbang Batu Kuno). Dibangun di awal.
+ //    2) 'kota'       = Kota Arunika + interior katedral + interior istana (+ warga kota & Ratu/Putri). Dibangun BERTAHAP di latar
+ //                      saat pemain mulai mendekat, hanya digambar bila dekat, collider-nya hanya dicek bila dekat.
+-//    3) 'padang-1..3' = Padang Rumput Arunika (timur kota, ±750 m): 3 bagian berurutan, masing-masing dibangun bertahap & hanya digambar bila dekat.
++//    3) 'padang-1..N' = Padang Rumput Arunika (timur kota, ±1.600 m + Sungai Bening): beberapa bagian berurutan (lihat MEADOW_SEG_X), masing-masing dibangun bertahap & hanya digambar bila dekat.
+ //  Langit, awan, matahari & tanah dasar milik dunia (global), jadi perbatasan antar-chunk tidak terlihat.
+ // ============================================================
+ export const HOLE_R = 3.4;               // radius lubang
+@@ -180,7 +180,7 @@ export function createWorld({ COARSE = false } = {}) {
+ 
+   // ---------- Tanah ----------
+   const gTex = grassTex(); gTex.repeat.set(0.11, 0.11);
+-  const shape = new THREE.Shape(); shape.absarc(0, 0, 1400, 0, Math.PI * 2, false); // dulu 170 -> 240 -> 380 -> 560 -> 640 -> 1400 (Padang Rumput Arunika sampai x≈1250); diperluas lagi supaya Kota Arunika (di timur Gerbang Batu Kuno, sampai x≈392) ikut berpijak dan tepi tanah tidak terlihat dari sana
++  const shape = new THREE.Shape(); shape.absarc(0, 0, 2400, 0, Math.PI * 2, false); // dulu 170 -> 240 -> 380 -> 560 -> 640 -> 1400 (Padang Rumput Arunika sampai x≈1250) -> 2400 (padang diperpanjang sampai x≈2070); diperluas lagi supaya Kota Arunika (di timur Gerbang Batu Kuno, sampai x≈392) ikut berpijak dan tepi tanah tidak terlihat dari sana
+   const holePath = new THREE.Path(); holePath.absarc(0, 0, HOLE_R, 0, Math.PI * 2, true); shape.holes.push(holePath);
+   const ground = new THREE.Mesh(new THREE.ShapeGeometry(shape, 64), new THREE.MeshStandardMaterial({ map: gTex, roughness: 1 }));
+   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; group.add(ground);
+@@ -461,14 +461,15 @@ export function createWorld({ COARSE = false } = {}) {
+     },
+     onReady() { if (prewarm) prewarm(cityG); },
+   });
+-  // ---------- Padang Rumput Arunika: 3 chunk berurutan di timur kota ----------
++  // ---------- Padang Rumput Arunika: beberapa chunk berurutan di timur kota (jumlahnya mengikuti MEADOW_SEG_X) ----------
+   // Tiap bagian punya grup, collider & jatah bangun sendiri. Mulai dibangun saat pemain < 240 m dari tepinya (bagian pertama sudah mulai dari dalam hutan,
+   // bersamaan dengan kota), jadi saat pemain keluar dari Gerbang Timur padang sudah siap.
+-  const meadowChunks = [0, 1, 2].map(i => {
+-    const g = new THREE.Group(); g.name = 'chunk-padang-' + (i + 1);
++  const meadowChunks = Array.from({ length: MEADOW_SEG_X.length - 1 }, (_, i) => {
++    const g = new THREE.Group(); g.name = 'chunk-padang-' + (i + 1); let flow = null;   // flow(t): animasi aliran Sungai Bening (hanya ada di bagian yang memuat sungai)
+     const circles = MEADOW_CIRCLES.filter(c => c.x + c.r > MEADOW_SEG_X[i] - 30 && c.x - c.r < MEADOW_SEG_X[i + 1] + 30).map(c => ({ ...c, r: c.r + 8 }));
+     return chunks.add({
+       id: 'padang-' + (i + 1), name: 'Padang Rumput ' + (i + 1), group: g, loadR: 240, circles,
++      update(dt, t) { if (flow) flow(t); },   // dipanggil ChunkManager hanya saat bagian ini tampil
+       *build(c) {
+         const gen = buildMeadowGen({
+           seg: i, colliders: c.colliders, rand: mulberry32(20261101 + i * 977), COARSE, jitter, prep, ribbon,
+@@ -477,7 +478,7 @@ export function createWorld({ COARSE = false } = {}) {
+           tex: { radialAlpha, edgeAlpha, dirt: dTex },
+         });
+         let r; while (!(r = gen.next()).done) yield;
+-        g.add(r.value.group); fixDecals(g); yield;
++        flow = r.value.update; g.add(r.value.group); fixDecals(g); yield;
+       },
+       onReady() { if (prewarm) prewarm(g); },
+     });

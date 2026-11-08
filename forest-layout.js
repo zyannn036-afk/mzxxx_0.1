@@ -5,6 +5,9 @@
 // ============================================================
 import { VILLAGE } from './village-layout.js';
 import { CITY, CITY_ZONES } from './city-layout.js';
+import { MEADOW_CIRCLES, RUINS_CIRCLES } from './meadow-layout.js';
+import { SAWAH_CIRCLES } from './sawah-layout.js';
+import { KEKAISARAN_CIRCLES } from './kekaisaran-layout.js';
 
 // pusat & radius area hutan yang bisa dijelajahi
 export const FOREST = { name: 'Hutan Besar', x: 100, z: 58, radius: 56 };
@@ -72,7 +75,7 @@ const ZONES = [
 ];
 // area yang boleh dijelajahi pemain: kalau Gerbang Batu Kuno terbuka (CITY.open), Kota Arunika ikut masuk.
 // (zoneDist() di bawah sengaja tetap hanya untuk hutan/desa: dipakai menata pohon, jadi kota tidak ikut ditanami pohon hutan)
-const WALK_ZONES = CITY.open ? [...ZONES, ...CITY_ZONES] : ZONES;
+const WALK_ZONES = CITY.open ? [...ZONES, ...CITY_ZONES, ...MEADOW_CIRCLES, ...RUINS_CIRCLES, ...SAWAH_CIRCLES, ...KEKAISARAN_CIRCLES] : ZONES;   // kota terbuka -> Padang Rumput Arunika (lewat Gerbang Timur) ikut bisa dijelajahi
 const FOREST_CIRCLES = [{ x: FOREST.x, z: FOREST.z, r: FOREST.radius }, ...FOREST_EXT];
 
 // jarak ke tepi area tambahan: negatif = di dalam area, positif = di luar
