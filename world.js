@@ -16,8 +16,9 @@ import { buildSawahGen } from './sawah.js';
 import { SAWAH_CIRCLES, SAWAH_SEG_X } from './sawah-layout.js';
 import { buildKekaisaranGen } from './kekaisaran.js';
 import { citizenTalk, citizenCanTalk, citizenTalkName } from './kekaisaran-npc.js';
-import { KEKAISARAN_CITY_CIRCLES, NW_PLAIN_CIRCLES, NW_TOWN_CIRCLES } from './kekaisaran-layout.js';
+import { KEKAISARAN_CITY_CIRCLES, NW_PLAIN_CIRCLES, NW_TOWN_CIRCLES, NE_PLAIN_CIRCLES, NE_MTN_CIRCLES } from './kekaisaran-layout.js';
 import { buildDataranBLGen } from './kekaisaran-dataran.js';
+import { buildDataranTLGen } from './kekaisaran-dataran-tl.js';
 import { buildKotaDungeonGen } from './kota-dungeon.js';
 import { ChunkManager, CHUNK_CFG } from './chunks.js';
 
@@ -258,9 +259,9 @@ export function createWorld({ COARSE = false } = {}) {
 
   // ---------- Tanah ----------
   const gTex = grassTex(); gTex.repeat.set(0.11, 0.11);
-  const shape = new THREE.Shape(); shape.absarc(0, 0, 4400, 0, Math.PI * 2, false); // 3700 -> 4000 -> 4400 (Padang Rumput Barat Laut 400 m + Kota Dungeon 200 m di luar Gerbang Barat Laut Kota Kekaisaran; tepi tanah tetap tak terlihat). dulu 170 -> 240 -> 380 -> 560 -> 640 -> 1400 (Padang Rumput Arunika sampai x≈1250) -> 2400 (padang diperpanjang sampai x≈2070) -> 3700 (Ladang Sawah Gemah Ripah di ujung padang, sampai x≈2840); diperluas lagi supaya Kota Arunika (di timur Gerbang Batu Kuno, sampai x≈392) ikut berpijak dan tepi tanah tidak terlihat dari sana
+  const shape = new THREE.Shape(); shape.absarc(0, 0, 5400, 0, Math.PI * 2, false); // 4400 -> 5400 (Jalur Turun Lembah Salju di ujung Punggungan Langit: lembah bersalju ±350 m di luar Tanjung Pandang harus ikut berpijak) // 3700 -> 4000 -> 4400 (Padang Rumput Barat Laut 400 m + Kota Dungeon 200 m di luar Gerbang Barat Laut Kota Kekaisaran; tepi tanah tetap tak terlihat). dulu 170 -> 240 -> 380 -> 560 -> 640 -> 1400 (Padang Rumput Arunika sampai x≈1250) -> 2400 (padang diperpanjang sampai x≈2070) -> 3700 (Ladang Sawah Gemah Ripah di ujung padang, sampai x≈2840); diperluas lagi supaya Kota Arunika (di timur Gerbang Batu Kuno, sampai x≈392) ikut berpijak dan tepi tanah tidak terlihat dari sana
   const holePath = new THREE.Path(); holePath.absarc(0, 0, HOLE_R, 0, Math.PI * 2, true); shape.holes.push(holePath);
-  const ground = new THREE.Mesh(new THREE.ShapeGeometry(shape, 64), new THREE.MeshStandardMaterial({ map: gTex, roughness: 1 }));
+  const ground = new THREE.Mesh(new THREE.ShapeGeometry(shape, 64), new THREE.MeshStandardMaterial({ map: gTex, roughness: 1, polygonOffset: true, polygonOffsetFactor: 3, polygonOffsetUnits: 3 }));   // didorong ke belakang: segitiga raksasa tanah dasar kadang menembus lapisan tipis di atasnya (tanah salju, jalan, sungai) -> bercak hijau
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; group.add(ground);
 
   // bercak warna rumput (supaya tanah tidak terlihat berulang)
@@ -615,6 +616,22 @@ export function createWorld({ COARSE = false } = {}) {
       onReady() { if (prewarm) prewarm(g); },
     });
   })();
+  // ---------- Padang Rumput Timur Laut: chunk terpisah di luar Gerbang Timur Laut Kota Kekaisaran (500 m; lihat kekaisaran-dataran-tl.js) ----------
+  // Sama seperti padang barat laut: dibangun hanya saat pemain mendekat (< 240 m dari tepinya).
+  let dataranTLPP = null;   // posisi pemain terakhir, diisi tiap frame oleh update() dunia
+  const dataranTLChunk = (() => {
+    const g = new THREE.Group(); g.name = 'chunk-dataran-tl'; let upd = null;
+    return chunks.add({
+      id: 'dataran-tl', name: 'Padang Rumput Timur Laut', group: g, loadR: 240, circles: NE_PLAIN_CIRCLES.concat(NE_MTN_CIRCLES).map(c => ({ ...c, r: c.r + 8 })), dyn: [],   // padang + Gunung Pendakian dalam satu chunk
+      update(dt) { if (upd && dataranTLPP) upd(dt, dataranTLPP); },
+      *build(c) {
+        const gen = buildDataranTLGen({ colliders: c.colliders, COARSE, rand: mulberry32(20261109), geo: { trunkOak, trunkPine, oakLeaf, pineLeaf, grassGeo }, mat: { barkMat, leafMat, swayMat } });
+        let r; while (!(r = gen.next()).done) yield;
+        upd = r.value.update; g.add(r.value.group); fixDecals(g); yield;
+      },
+      onReady() { if (prewarm) prewarm(g); },
+    });
+  })();
   // ---------- Kota Dungeon: chunk terpisah di ujung Padang Rumput Barat Laut (kota kecil + Gerbang Dungeon berportal; lihat kota-dungeon.js) ----------
   // Dibangun hanya saat pemain mendekat (< 240 m dari tepinya), jadi tidak membebani pemuatan awal maupun chunk padang.
   const kotaDungeonChunk = (() => {
@@ -659,7 +676,8 @@ export function createWorld({ COARSE = false } = {}) {
       if (kekChunk.state !== 'ready' && kekChunk.dist < 40) chunks.ensure('kekaisaran');                 // dan Kota Kekaisaran
       if (dataranChunk.state !== 'ready' && dataranChunk.dist < 40) chunks.ensure('dataran-bl');         // dan Padang Rumput Barat Laut
       if (kotaDungeonChunk.state !== 'ready' && kotaDungeonChunk.dist < 40) chunks.ensure('kota-dungeon');   // dan Kota Dungeon
-      dataranPP = pp;
+      if (dataranTLChunk.state !== 'ready' && dataranTLChunk.dist < 40) chunks.ensure('dataran-tl');     // dan Padang Rumput Timur Laut
+      dataranPP = pp; dataranTLPP = pp;
       chunks.update(dt, t, pp, cp);                  // membangun / menampilkan / menyembunyikan chunk; chunk yang tampil meng-update isinya sendiri
       npcs.update(dt, t, pp, cam);                      // NPC sudah menyembunyikan diri bila jauh (>70 m)
       const fa = forestAmount(pp.x, pp.z); // di dalam hutan: cahaya sedikit lebih redup (teduh di bawah tajuk)

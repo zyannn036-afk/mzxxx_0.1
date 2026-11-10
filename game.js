@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { NE_YETI_SPOTS } from './kekaisaran-layout.js';
 import { createMutantRig } from './mutan-anim.js';   // animasi Mutan lewat kode (berdiri, jalan, cakar, seruduk, hantam, raung, mati)
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { createWorld, HOLE_R, LIMIT, SPAWN, SKY_COLOR, FOG_DENSITY } from './world.js';
@@ -9,7 +10,7 @@ import { FOREST, ANCIENT_GATE, CAMP_FIRE, POND, SECRET_GLADE, SECRET_QUEST } fro
 import { CITY, CITY_SPAWN, CHURCH, PALACE, cityDist } from './city-layout.js';
 import { MEADOW, RUINS, MEADOW_SEG_X, meadowDist } from './meadow-layout.js';
 import { SAWAH, KEKAISARAN, SAWAH_SPAWN, sawahDist } from './sawah-layout.js';
-import { kekaisaranDist, districtAt, DISTRICTS, GATES, inNwPlain, inNwTown, nwPlainAxis, nwAxisToWorld } from './kekaisaran-layout.js';
+import { kekaisaranDist, districtAt, DISTRICTS, GATES, inNwPlain, inNwTown, nwPlainAxis, nwAxisToWorld, inNePlain, neAxisToWorld, APOTHEM, neMtnH, neMtnTop, neMtnTopWhich, neBridgeClamp, neRidgeZone, neRidgeToAxis, NE_RIDGE, neDescZone, neDescToAxis, NE_DESC, neVillageZone, NE_VILLAGE } from './kekaisaran-layout.js';
 import { VILLAGES_BL, desaBLNear, WARGA_BL } from './kekaisaran-dataran.js';
 import { DUNGEON_TOWN, DUNGEON_GATES, MAIN_DUNGEON, GUILD_DOOR, SMITH_DOOR, POTION_DOOR, LODGE_DOOR } from './kota-dungeon.js';
 import { WARGA, CERITA, KAELEN_TALK } from './kota-warga.js';   // nama + percakapan semua NPC Kota Dungeon (hanya teks) + cerita rumor Kaelen
@@ -31,6 +32,7 @@ import { buildGolem, poseGolem, newGolemPose, ATTACK } from './golem.js';
 const $ = id => document.getElementById(id);
 let R = 18; const ARENA_R = 18; // radius arena (ruang bos). Saat menjelajah dungeon, R dibuat sangat besar (lihat startExplore) supaya semua pembatas arena bundar tidak aktif; dikembalikan ke ARENA_R di ruang bos / dunia luar
 const rnd = (a, b) => a + Math.random() * (b - a);
+let fxY = 0;   // tinggi lantai / tanah di bawah pemain: efek skill diletakkan relatif terhadap ini (supaya tidak terkubur di gunung / lantai atas)
 const COARSE = matchMedia('(pointer:coarse)').matches; // true di HP/tablet
 
 // ---------- Renderer, scene, kamera ----------
@@ -569,6 +571,7 @@ function poseAndAnimate(dt, spd) { // spd: 0..1 kecepatan gerak
 
 // ---------- Musuh ----------
 const enemies = [], orbs = [], rings = [];
+let nagaFoe = null, nagaKalah = (() => { try { return localStorage.getItem('naga_kuno_izin') === '1'; } catch (err) { return false; } })();   // Naga Kuno (Sarang Naga): musuh yang sedang bertarung / sudah pernah dikalahkan (= izin membawa naga pegunungan)
 // Bos yang mengincar Lyra: selama AI bos berjalan, posisi pemain DIPINJAMKAN ke posisi Lyra (swapIn) lalu dikembalikan (swapOut), jadi semua bidikan / kejaran / skill bos otomatis tertuju ke Lyra;
 // semua damage & efek (hurtPlayer / iceHurt / knHurt / push / trap / launch) selama peminjaman dialihkan ke Lyra, bukan pemain asli.
 const AIMSW = { on: false, x: 0, y: 0, z: 0 }; let aimLyra = false;
@@ -1236,7 +1239,7 @@ function pushPlayer(dir, force) {
 function trapPlayer(sec) {
   if (AIMSW.on) return;
    // pemain membeku di dalam balok es
-  if (P.trap > 0 || state !== 'play') return;
+  if (P.trap > 0 || (state !== 'play' && state !== 'world')) return;   // 'world' = pertarungan Naga Kuno di dunia luar
   P.trap = P.trapMax = sec; P.atk = 0; P.cross = false; P.combo = 0; P.hit = false; P.roll = 0; P.v.set(0, 0, 0); P.push.set(0, 0, 0);
   const g = new THREE.Group(), mat = iceMat(0.6); g.position.copy(player.position);
   const blk = new THREE.Mesh(ICE_BALL_GEO, mat); blk.scale.set(1.25, 1.75, 1.25); blk.position.y = 0.95; g.add(blk);
@@ -2347,7 +2350,7 @@ function mkEnemy(boss, variant = 0, at = null) {   // at = {x, z}: posisi awal t
 // onlyWithLyra: true = bonus kesulitan hanya aktif saat Lyra sedang ikut di party (bos menyesuaikan jumlah party).
 const BOSS_BUFF = { hp: 2, dmg: 1.35, sp: 1.1, onlyWithLyra: false };
 const bossBuffOn = () => !BOSS_BUFF.onlyWithLyra || lyra.recruited;
-const bossMul = () => bossBuffOn() && !kaelenOn() && enemies.some(e => e.boss && !e.minion && !e.dying && !e.kaelen) ? BOSS_BUFF.dmg : 1;
+const bossMul = () => bossBuffOn() && !kaelenOn() && (enemies.some(e => e.boss && !e.minion && !e.dying && !e.kaelen) || (nagaFoe && !nagaFoe.dying)) ? BOSS_BUFF.dmg : 1;
 function buffBosses() {   // dipanggil tiap frame: bos yang baru muncul diperkuat sekali saja
   if (!bossBuffOn()) return;
   for (const e of enemies) if (e.boss && !e.minion && !e.kaelen && !e.buffed) { e.buffed = true; e.hp = Math.round(e.hp * BOSS_BUFF.hp); e.max = Math.round(e.max * BOSS_BUFF.hp); e.sp *= BOSS_BUFF.sp; }
@@ -2475,19 +2478,21 @@ function lyraOrbHit(o) {   // proyektil bos mengenai Lyra (true = proyektil habi
   return p.y > 0.2 && p.y < 2.4 && Math.hypot(p.x - l.x, p.z - l.z) < 0.9 && hurtLyraArea(l.x, l.z, 1, 12);
 }
 function hurtEnemy(e, n, dir, force = 0, src = '') { // dir: arah dorong (ternormalisasi), force: kecepatan awal knockback, src: asal serangan ('s3' / 's6' = skill cahaya). Mengembalikan true bila pukulan DITANGKIS (kebal)
-  if (e.dying) return false; // sedang adegan slowmo
+  if (e.dying || e.done) return false; // sedang adegan slowmo / Naga Kuno sudah kalah
   n = Math.round(n * swordMul); if (e.kaelen) return kaelenHurt(n, force);   // pedang yang dipakai (tas item) menambah semua damage pemain
   if (e.lightImmune && (src === 's3' || src === 's6')) { immuneFx(e); return true; } // Seraphim kebal elemen cahaya: skill 3 (Summon Blade) & skill 6 (Excalibur)
   e.hp -= n; e.flash = 0.12; noteThreat(e, hitSrc === 'lyra' ? 'l' : 'p', n); if (e.wild || e.xroom != null) e.aggro = true; // monster hutan yang dipukul langsung marah
-  if (dir && force) { e.kv.set(dir.x, 0, dir.z).multiplyScalar(force * (e.dragon || e.golem ? 0.1 : e.boss ? 0.3 : 1)); e.stun = e.dragon || e.golem ? 0 : e.boss ? 0.15 : 0.35; e.wind = 0; e.g.scale.setScalar(1); }
-  burst(e.g.position.clone().setY(e.dragon || e.golem ? 3 : 1.3), e.wild ? e.col : e.fx ? e.fx : e.golem ? 0xbfefff : e.dragon ? 0xff8a40 : e.boss ? 0xff60f0 : e.crystal ? 0x9fe8ff : 0xffd060, 10);
-  if (e.hp <= 0 && !e.wild && enemies.every(o => o === e || o.minion) && wave === WAVES.length - 1) { startKillCam(e); return; } // musuh terakhir: slowmo dulu
+  if (dir && force) { e.kv.set(dir.x, 0, dir.z).multiplyScalar(force * (e.dragon || e.golem ? 0.1 : e.boss ? 0.3 : e.icegolem ? 0.2 : e.yeti ? (e.elder ? 0.12 : 0.4) : 1)); e.stun = e.dragon || e.golem ? 0 : e.boss ? 0.15 : e.icegolem ? 0.1 : e.yeti ? (e.elder ? 0.05 : 0.15) : 0.35; e.wind = 0; e.g.scale.setScalar(1); }
+  burst(e.skydrag ? e.g.position.clone() : e.g.position.clone().setY(e.dragon || e.golem ? 3 : 1.3), e.wild ? e.col : e.fx ? e.fx : e.golem ? 0xbfefff : e.dragon ? 0xff8a40 : e.boss ? 0xff60f0 : e.crystal ? 0x9fe8ff : 0xffd060, 10);
+  if (e.hp <= 0 && !e.wild && !e.nagakuno && enemies.every(o => o === e || o.minion) && wave === WAVES.length - 1 && !e.skydrag) { startKillCam(e); return; } // musuh terakhir: slowmo dulu
   if (e.hp <= 0) {
+    if (e.skydrag) { nagaLiarDefeat(e); return; }   // naga pegunungan kalah: tidak dihancurkan, ia melayang & bisa dijinakkan (lihat nagaLiarMenu)
+    if (e.nagakuno) { nagaKunoDefeat(e); return; }   // Naga Kuno kalah: tidak dihancurkan, ia mengakui kekalahannya (lihat nagaMenu)
     burst(e.g.position.clone().setY(1), 0xffffff, 24, 7);
     if (e.mutant) { clearCrystalBoss(); clearIceBoss(); }   // Mutan mati: kristal lenyap & pemain bebas dari kristal
     if (e.caveboss) clearCaveBoss(true);   // Grumbolt mati tanpa adegan slowmo: batu & golem panggilan ikut lenyap
     if (e.knight) clearKnight();   // bos mati tanpa adegan slowmo (masih ada musuh lain): bersihkan efeknya
-    if (e.wild) { burst(e.g.position.clone().setY(0.8), e.col, 22, 6); removeWild(e); return; }
+    if (e.wild) { burst(e.g.position.clone().setY(0.8), e.col, 22, 6); if (e.icegolem) iceGolemDeath(e); if (e.yeti) yetiDeath(e); removeWild(e); return; }
     lootOnDefeat(e); scene.remove(e.g); enemies.splice(enemies.indexOf(e), 1);
   }
 }
@@ -2516,7 +2521,8 @@ function collidePlayer() {
     world.palace.collide(player.position, PLAYER_R); world.clamp(player.position);
     player.position.y = world.palace.groundY(player.position.x, player.position.z, player.position.y); return;
   }
-  if (state === 'world') { world.collide(player.position, PLAYER_R); world.clamp(player.position); if (!P.air) player.position.y = inKekaisaran ? world.kekGroundY(player.position.x, player.position.z) : 0; return; } // dunia luar: pohon & batas dunia (dataran + desa + Hutan Besar); di Kota Kekaisaran tinggi pemain mengikuti tangga istana
+  if (state === 'world') { if (inKekaisaran || !neBridgeClamp(player.position)) world.collide(player.position, PLAYER_R); world.clamp(player.position); if (!P.air) player.position.y = inKekaisaran ? world.kekGroundY(player.position.x, player.position.z) : neMtnH(player.position.x, player.position.z, player.position.y); return; }   // neBridgeClamp: di atas jembatan antar-puncak tabrakan dunia dilewati (dek dijaga pagar sendiri)   // neMtnH: Gunung Pendakian (padang timur laut), 0 di tempat lain
+ // dunia luar: pohon & batas dunia (dataran + desa + Hutan Besar); di Kota Kekaisaran tinggi pemain mengikuti tangga istana
   if (exploreMode && dgX) {
     if (P.pt === 2) return;   // saat terjang Dash Petir tidak ditabrak dinding (lintasan lurus); titik mendarat sudah dijamin kosong (dgX.dashLen)
     dgX.collide(player.position, PLAYER_R);
@@ -2756,6 +2762,8 @@ function updateEnemies(dt) {
     e.mat.emissive.setHex(e.flash > 0 ? 0xffffff : e.wind > 0 ? 0x802010 : (e.base || 0x000000));
     if (e.dragon) dragonAI(e, d, dist, dt);
     else if (e.golem) golemAI(e, d, dist, dt);
+    else if (e.icegolem) iceGolemAI(e, d, dist, dt, pdist);
+    else if (e.yeti) yetiAI(e, d, dist, dt, pdist);
     else if (e.wild) wildAI(e, d, dist, dt, pdist);
     else if (e.boss && e.mutant) { mutantAI(e, d, dist, dt); mutantPose(e, dt, false); }
     else if (e.boss && e.seraph) seraphAI(e, d, dist, dt);   // Seraphim: melayang, 3 serangan cahaya
@@ -2818,7 +2826,7 @@ function updateEnemies(dt) {
 // ---------- Monster liar di Hutan Besar: slime & goblin muncul acak, hanya selama pemain di dalam hutan ----------
 const WILD_MAX = 6, WILD_MAX_DEEP = 9; // jumlah maksimum di sekitar pemain (Hutan Dalam lebih ramai)
 let wildT = 0, calmT = 0, loseInWorld = false;
-const wildCount = () => enemies.reduce((n, e) => n + (e.wild ? 1 : 0), 0);
+const wildCount = () => enemies.reduce((n, e) => n + (e.wild && !e.icegolem && !e.yeti ? 1 : 0), 0);   // golem es & Yeti dihitung terpisah (ICEG.max / YETI.max)
 function mkWild(kind, x, z) {
   const m = kind === 'slime' ? buildSlime() : buildGoblin(), bar = makeBar(m.h);
   m.g.add(bar.g); m.g.position.set(x, 0, z); m.g.rotation.y = rnd(0, Math.PI * 2);
@@ -2853,11 +2861,11 @@ function trySpawnWild() {
 }
 function wildSpawnTick(dt) {
   const fa = world.forestAmount(player.position.x, player.position.z);
-  for (const e of [...enemies]) if (e.wild && !e.dying) { // terlalu jauh / pemain sudah keluar hutan -> hilang diam-diam
+  for (const e of [...enemies]) if (e.wild && !e.dying && !e.icegolem && !e.yeti) { // terlalu jauh / pemain sudah keluar hutan -> hilang diam-diam
     const d = e.g.position.distanceTo(player.position);
     if (d > 62 || (fa < 0.1 && !e.aggro && d > 28)) removeWild(e);
   }
-  if (!enemies.some(e => e.wild && e.aggro)) { calmT += dt; if (calmT > 4 && P.hp < P.max && !DK.on) P.hp = Math.min(P.max, P.hp + 2.5 * dt); } else calmT = 0; // aman beberapa detik -> darah pulih pelan
+  if (!enemies.some(e => (e.wild && e.aggro) || e.nagakuno || e.skydrag)) { calmT += dt; if (calmT > 4 && P.hp < P.max && !DK.on) P.hp = Math.min(P.max, P.hp + 2.5 * dt); } else calmT = 0; // aman beberapa detik -> darah pulih pelan
   if (fa < 0.4) { wildT = Math.min(wildT, 1.5); return; }
   if ((wildT -= dt) > 0) return;
   wildT = rnd(2.5, 5.5); trySpawnWild();
@@ -2915,6 +2923,234 @@ function wildAI(e, d, dist, dt, pdist = dist) {   // dist = jarak ke sasaran (pe
   if (show) { e.bar.fill.scale.x = Math.max(0.001, e.hp / e.max) * e.bar.w; e.bar.g.rotation.y = Math.atan2(cam.position.x - pos.x, cam.position.z - pos.z) - e.g.rotation.y; }
 }
 
+// ---------- Golem Es: monster penjaga Hutan Salju (Jalur Turun Lembah Salju) ----------
+//  Raksasa es low-poly (dibangun dari bentuk dasar, tanpa file model): berkeliaran di Hutan Salju, mengejar pemain yang dekat, lalu menghantam tanah (gelombang kejut es, berguling = kebal).
+//  Memakai sistem monster liar (e.wild) tetapi muncul & hilang lewat iceGolemTick (bukan lewat hutan biasa); mati -> hancur berkeping & menjatuhkan item es; muncul lagi beberapa saat kemudian.
+const ICEG = { hp: 280, sp: 2.6, r: 1.7, dmg: 20, rad: 3.8, aggroR: 17, wind: 1.0, cd: 2.8, max: 5 };   // hp, kecepatan, jari-jari badan, damage hantaman, radius gelombang kejut, jarak mulai mengejar, aba-aba (detik), jeda antar hantaman, jumlah maksimum sekaligus
+function buildIceGolem() {
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  const mIce = new THREE.MeshStandardMaterial({ color: 0x9fd8f0, roughness: 0.3, metalness: 0.15, flatShading: true }), mDark = new THREE.MeshStandardMaterial({ color: 0x5b8fb8, roughness: 0.5, flatShading: true });
+  const mGlow = new THREE.MeshStandardMaterial({ color: 0xdaf8ff, emissive: 0x58d8ff, emissiveIntensity: 1.4, flatShading: true });
+  const ico = new THREE.IcosahedronGeometry(1, 0), box = new THREE.BoxGeometry(1, 1, 1), dode = new THREE.DodecahedronGeometry(1, 0), cone = new THREE.ConeGeometry(1, 1, 5);
+  const add = (par, geo, mat, x, y, z, sx = 1, sy = 1, sz = 1, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.rotation.z = rz; m.castShadow = true; par.add(m); return m; };
+  add(body, ico, mIce, 0, 2.6, 0, 1.3, 1.4, 1.0);                 // dada
+  add(body, ico, mDark, 0, 1.65, 0, 0.9, 0.7, 0.75);              // pinggul
+  add(body, dode, mIce, 0, 4.15, 0.1, 0.6, 0.55, 0.6);            // kepala
+  add(body, box, mGlow, -0.22, 4.2, 0.62, 0.16, 0.1, 0.06); add(body, box, mGlow, 0.22, 4.2, 0.62, 0.16, 0.1, 0.06);   // mata menyala
+  for (const [x, y, z, h, rz] of [[-0.5, 3.7, -0.7, 1.1, 0.35], [0.5, 3.7, -0.7, 1.1, -0.35], [0, 3.4, -0.85, 1.4, 0], [-1.0, 4.0, -0.2, 0.9, 0.7], [1.0, 4.0, -0.2, 0.9, -0.7]]) add(body, cone, mGlow, x, y, z, 0.3, h, 0.3, rz);   // kristal es di punggung & bahu
+  const mkArm = sd => { const a = new THREE.Group(); a.position.set(sd * 1.6, 3.4, 0); body.add(a); add(a, ico, mIce, 0, 0, 0, 0.72, 0.72, 0.72); add(a, box, mIce, 0, -0.85, 0, 0.62, 1.3, 0.62); add(a, ico, mDark, 0, -1.75, 0.05, 0.65, 0.65, 0.65); add(a, cone, mGlow, 0, -2.3, 0.05, 0.22, 0.6, 0.22, Math.PI); return a; };
+  const mkLeg = sd => { const l = new THREE.Group(); l.position.set(sd * 0.62, 1.55, 0); g.add(l); add(l, box, mDark, 0, -0.72, 0, 0.72, 1.4, 0.72); add(l, box, mIce, 0, -1.42, 0.16, 0.9, 0.3, 1.15); return l; };
+  const parts = { body, armL: mkArm(-1), armR: mkArm(1), legL: mkLeg(-1), legR: mkLeg(1) };
+  return { g, mat: mIce, mats: [mIce, mDark, mGlow], parts, h: 5.4, r: ICEG.r, hp: ICEG.hp, col: 0x9fe8ff };
+}
+function mkIceGolem(x, z) {
+  const m = buildIceGolem(), bar = makeBar(m.h);
+  m.g.add(bar.g); m.g.position.set(x, 0, z); m.g.rotation.y = rnd(0, Math.PI * 2);
+  const e = { g: m.g, mat: m.mat, mats: m.mats, parts: m.parts, wild: true, icegolem: true, kind: 'icegolem', col: m.col, boss: false, bar, hp: ICEG.hp, max: ICEG.hp, sp: ICEG.sp, r: ICEG.r, cd: rnd(1, 2), wind: 0, windMax: ICEG.wind, flash: 0, kv: new THREE.Vector3(), stun: 0,
+    home: new THREE.Vector3(x, 0, z), aggro: false, t: rnd(0, 6), wt: rnd(0.5, 2), wd: new THREE.Vector3(), mv: 0, wk: 0, sw: 0 };
+  scene.add(m.g); enemies.push(e); return e;
+}
+function iceGolemPose(e, dt) {
+  const P2 = e.parts; e.wk += dt * e.mv * 2.2;
+  const sw = Math.sin(e.wk) * Math.min(1, e.mv / ICEG.sp);
+  P2.legL.rotation.x = sw * 0.55; P2.legR.rotation.x = -sw * 0.55;
+  let aL = -sw * 0.3, aR = sw * 0.3, lean = 0;
+  if (e.wind > 0) { const u = Math.min(1, (1 - e.wind / e.windMax) * 1.5); aL = aR = -Math.PI * 0.92 * u; lean = -0.18 * u; }   // aba-aba: kedua tangan terangkat tinggi
+  else if (e.sw > 0) { const u = e.sw / 0.35; aL = aR = -Math.PI * 0.92 * u + 0.5 * (1 - u); lean = 0.28 * (1 - u) * u * 2; }          // menghantam ke bawah
+  P2.armL.rotation.x = aL; P2.armR.rotation.x = aR; P2.body.rotation.x = lean; P2.body.position.y = Math.sin(e.t * 1.6) * 0.04 - Math.abs(sw) * 0.06;
+}
+function iceGolemAI(e, d, dist, dt, pdist) {
+  const pos = e.g.position, px = pos.x, pz = pos.z; e.t += dt; e.mv = 0;
+  if (neVillageZone(player.position.x, player.position.z, 12)) e.aggro = false;   // pemain di Desa Salju (atau tepat di depannya): monster melepas kejaran
+  else if (!e.aggro && pdist < ICEG.aggroR) e.aggro = true; else if (e.aggro && pdist > ICEG.aggroR * 2.4) e.aggro = false;
+  const face = (dx, dz, k = 6) => { let df = Math.atan2(dx, dz) - e.g.rotation.y; df = Math.atan2(Math.sin(df), Math.cos(df)); e.g.rotation.y += df * Math.min(1, dt * k); };
+  if (e.stun > 0) { /* terpental sedikit */ }
+  else if (e.wind > 0) {   // aba-aba: tangan terangkat, lalu menghantam tanah di depannya
+    e.wind -= dt; face(d.x, d.z, 5);
+    if (e.wind <= 0) { e.sw = 0.35; const f = new THREE.Vector3(Math.sin(e.g.rotation.y), 0, Math.cos(e.g.rotation.y)); spawnQuake(pos.clone().addScaledVector(f, 2.4), ICEG.rad, ICEG.dmg); }
+  } else if (e.aggro) {
+    face(d.x, d.z);
+    if (dist > e.r + 1.9) { pos.addScaledVector(d, e.sp * dt); e.mv = e.sp; }
+    else if (e.cd <= 0) { e.wind = e.windMax; e.cd = ICEG.cd; }
+  } else {   // berkeliaran pelan di sekitar tempat munculnya
+    e.wt -= dt;
+    if (e.wt <= 0) { e.wt = rnd(2.5, 5); if (Math.hypot(px - e.home.x, pz - e.home.z) > 14) e.wd.set(e.home.x - px, 0, e.home.z - pz).normalize(); else if (Math.random() < 0.4) e.wd.set(0, 0, 0); else { const a = rnd(0, Math.PI * 2); e.wd.set(Math.sin(a), 0, Math.cos(a)); } }
+    if (e.wd.lengthSq() > 0) { pos.addScaledVector(e.wd, 1.2 * dt); e.mv = 1.2; face(e.wd.x, e.wd.z, 3); }
+  }
+  e.sw = Math.max(0, e.sw - dt);
+  world.collide(pos, e.r * 0.8);   // tidak menembus pohon, batu & tepi sungai
+  if (neDescZone(pos.x, pos.z) < 2 || neVillageZone(pos.x, pos.z, 20)) { pos.x = px; pos.z = pz; }   // tetap di lembah & Hutan Salju; Desa Salju + sabuk 20 m di sekelilingnya terlarang bagi monster
+  const em = e.flash > 0 ? 0xffffff : e.wind > 0 ? 0x2a6a9a : 0x000000;
+  e.mats[0].emissive.setHex(em); e.mats[1].emissive.setHex(em);
+  iceGolemPose(e, dt);
+  const show = e.hp < e.max && !e.dying; e.bar.g.visible = show;
+  if (show) { e.bar.fill.scale.x = Math.max(0.001, e.hp / e.max) * e.bar.w; e.bar.g.rotation.y = Math.atan2(cam.position.x - pos.x, cam.position.z - pos.z) - e.g.rotation.y; }
+}
+function iceGolemDeath(e) {   // hancur berkeping + item es berhamburan
+  const p = e.g.position; burst(p.clone().setY(2), 0xcfefff, 40, 9); burst(p.clone().setY(1), 0x8fd8ff, 26, 6); shake = Math.max(shake, 0.5); audio.sfx('thud', { vol: 0.9, rate: 0.5 });
+  try { loot.drop(p.x, p.z, 'es', { strong: true }); } catch (err) { /* item hanya dijatuhkan bila sistem item aktif di dunia luar */ }
+  iceGolemT = Math.max(iceGolemT, rnd(14, 22));   // jeda sebelum golem pengganti muncul
+}
+let iceGolemT = 1.5;
+function trySpawnIceGolem() {
+  for (let i = 0; i < 16; i++) {
+    const a = rnd(0, Math.PI * 2), rr = Math.sqrt(Math.random()) * (NE_DESC.forestR - 12), q = neDescToAxis(NE_DESC.forestS + Math.cos(a) * rr, NE_DESC.uEnd + Math.sin(a) * rr), w = neAxisToWorld(q.d, q.off);
+    if (Math.hypot(w.x - player.position.x, w.z - player.position.z) < 18 || neDescZone(w.x, w.z) < 2 || neVillageZone(w.x, w.z, 20)) continue;
+    const p = new THREE.Vector3(w.x, 0, w.z); world.collide(p, 1.6); if (Math.hypot(p.x - w.x, p.z - w.z) > 0.05) continue;   // bukan di batang pohon / batu
+    if (enemies.some(o => o.icegolem && Math.hypot(o.g.position.x - w.x, o.g.position.z - w.z) < 9)) continue;
+    const e = mkIceGolem(w.x, w.z); burst(new THREE.Vector3(w.x, 0.6, w.z), e.col, 18, 4); return true;
+  }
+  return false;
+}
+function iceGolemTick(dt) {   // golem muncul bertahap saat pemain di lembah / Hutan Salju; hilang diam-diam bila pemain jauh
+  for (const e of [...enemies]) if (e.icegolem && !e.dying && e.g.position.distanceTo(player.position) > 170) removeWild(e);
+  if (neDescZone(player.position.x, player.position.z, 40) < 2) { iceGolemT = Math.min(iceGolemT, 3); return; }
+  if ((iceGolemT -= dt) > 0) return;
+  iceGolemT = rnd(3, 6);
+  if (enemies.reduce((n, e) => n + (e.icegolem ? 1 : 0), 0) < ICEG.max) trySpawnIceGolem();
+}
+
+// ---------- Yeti: monster penghuni Hutan Salju (adorable_yeti_snowman.glb) ----------
+//  Model bertulang (tanpa klip animasi): gerakannya dibuat lewat kode (lengan terangkat saat aba-aba, kaki melangkah, badan condong) memakai tulang model.
+//  Sarang ada di NE_YETI_SPOTS (kekaisaran-layout.js): Yeti muncul bila pemain dekat, berkeliaran di sekitar sarang, mengejar pemain yang mendekat, lalu menyerang:
+//    - HANTAMAN: kedua tangan diangkat, lalu menghantam tanah di depannya (gelombang kejut; berguling = kebal)
+//    - TEPISAN: ayunan cepat satu tangan, hanya kena bila pemain dekat
+//  Yeti Tua (elder) di ujung jalan: lebih besar, lebih kuat, hantamannya lebih luas & lebih cepat. Mati -> item es berhamburan; sarang terisi lagi setelah beberapa saat.
+//  Taruh adorable_yeti_snowman.glb di folder yang sama dengan lowpoly_bigfoot.glb. Kalau gagal dimuat, Hutan Salju tanpa Yeti.
+const YETI = {
+  file: 'adorable_yeti_snowman.glb', face: 0,   // face = putaran-y tambahan (radian) bila model tampak menghadap ke arah lain; 0 = menghadap +z (sudah benar untuk model ini)
+  modelH: 2.15, cx: 0, cz: 0.325, y0: 0,       // ukuran & pusat model asli (cadangan bila kotak pembatas mesh bertulang tak masuk akal)
+  normal: { hp: 240, h: [2.8, 3.4], sp: 3.3, r: 1.15, dmg: 18, rad: 3.4, wind: 0.95, cd: 2.4, reach: 1.7, respawn: 70 },
+  elder:  { hp: 900, h: [5.2, 5.2], sp: 3.0, r: 2.0, dmg: 28, rad: 5.4, wind: 1.1, cd: 1.7, reach: 2.6, respawn: 240 },
+  swipe: { wind: 0.45, dmgK: 0.75, p: 0.4 },   // tepisan: aba-aba pendek, damage = dmg × dmgK, dipilih dengan peluang p bila pemain dekat
+  aggroR: 18, aggroElder: 26, spawnR: 110, despawnR: 170, max: 6,   // jarak aggro, jarak sarang "hidup" (pemain < spawnR), jarak hilang diam-diam, jumlah maksimum sekaligus
+};
+let yetiGltf = null, yetiBox = null;
+new GLTFLoader().load(YETI.file, g => {
+  yetiGltf = g; g.scene.updateMatrixWorld(true);
+  yetiBox = { hgt: YETI.modelH, cx: YETI.cx, cz: YETI.cz, y0: YETI.y0 };
+  try { const b = new THREE.Box3().setFromObject(g.scene, true), h = b.max.y - b.min.y; if (h > 1.2 && h < 4) yetiBox = { hgt: h, cx: (b.min.x + b.max.x) / 2, cz: (b.min.z + b.max.z) / 2, y0: b.min.y }; } catch (err) { /* pakai ukuran cadangan */ }
+}, undefined, err => console.warn(YETI.file + ' gagal dimuat — Hutan Salju tanpa Yeti', err));
+const YETI_BONES = ['Mid_Torso_04', 'Head_08', 'R_Bicep_010', 'L_Bicep_024', 'R_Forearm_012', 'L_Forearm_026', 'L_Thigh_038', 'R_Thigh_042'];
+const _yq1 = new THREE.Quaternion(), _yq2 = new THREE.Quaternion(), _yq3 = new THREE.Quaternion(), _yax = new THREE.Vector3();
+function yetiRot(S, nm, ax, ay, az, ang) {   // putar tulang sebesar ang dari pose diam, pada sumbu (ax, ay, az) di kerangka Yeti (x = kiri, y = atas, z = depan) — tidak bergantung pada sumbu lokal tulang
+  const b = S.bone[nm]; if (!b || !b.parent) return;
+  S.g.getWorldQuaternion(_yq1); b.parent.getWorldQuaternion(_yq2);
+  _yax.set(ax, ay, az).applyQuaternion(_yq1); _yq3.setFromAxisAngle(_yax, ang);
+  b.quaternion.copy(_yq2).invert().multiply(_yq3).multiply(_yq2).multiply(S.rest[nm]);
+}
+function yetiArm(S, nm, zAng, yAng) {   // seperti yetiRot, tapi gabungan: angkat lengan (sumbu depan-belakang z) + ayun ke depan/belakang (sumbu tegak y) dalam satu putaran
+  const b = S.bone[nm]; if (!b || !b.parent) return;
+  S.g.getWorldQuaternion(_yq1); b.parent.getWorldQuaternion(_yq2);
+  _yax.set(0, 0, 1).applyQuaternion(_yq1); _yq3.setFromAxisAngle(_yax, zAng);
+  _yax.set(0, 1, 0).applyQuaternion(_yq1); _yq1.setFromAxisAngle(_yax, yAng);   // _yq1 dipakai ulang: putaran ayunan
+  _yq3.premultiply(_yq1);
+  b.quaternion.copy(_yq2).invert().multiply(_yq3).multiply(_yq2).multiply(S.rest[nm]);
+}
+function buildYeti(elder) {
+  const C = elder ? YETI.elder : YETI.normal, H = rnd(C.h[0], C.h[1]), B = yetiBox, k = H / B.hgt;
+  const root = SkeletonUtils.clone(yetiGltf.scene), g = new THREE.Group(), mats = [], bone = {}, rest = {};
+  root.scale.setScalar(k); root.position.set(-B.cx * k, -B.y0 * k, -B.cz * k);   // kaki di y = 0, badan di tengah kelompok
+  root.traverse(o => {
+    if (o.isBone && YETI_BONES.includes(o.name)) { bone[o.name] = o; rest[o.name] = o.quaternion.clone(); }
+    if (o.isMesh) {
+      o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;   // frustumCulled off: kotak pembatas mesh bertulang tidak dapat diandalkan
+      o.material = o.material.clone(); if (elder && o.material.color) o.material.color.multiply(new THREE.Color(0.72, 0.86, 1.15));   // Yeti Tua sedikit kebiruan; bahan diklon: kilatan terkena pukulan tidak berbagi antar Yeti
+      mats.push(o.material);
+    }
+  });
+  g.add(root);
+  return { g, root, mats, mat: mats[0] || new THREE.MeshStandardMaterial(), h: H, r: C.r, hp: C.hp, S: { g, bone, rest } };
+}
+function mkYeti(x, z, spot) {
+  const elder = !!spot.elder, C = elder ? YETI.elder : YETI.normal, m = buildYeti(elder), bar = makeBar(m.h);
+  m.g.add(bar.g); m.g.position.set(x, 0, z); m.g.rotation.y = rnd(0, Math.PI * 2);
+  const e = { g: m.g, mat: m.mat, mats: m.mats, yr: m.S, wild: true, yeti: true, elder, spot, kind: 'yeti', col: elder ? 0xb8dcff : 0xe8f6ff, boss: false, h: m.h, bar, hp: C.hp, max: C.hp, sp: C.sp, r: C.r, C, cd: rnd(1, 2), wind: 0, windMax: C.wind, atk: 'smash', flash: 0, kv: new THREE.Vector3(), stun: 0,
+    home: new THREE.Vector3(x, 0, z), aggro: false, t: rnd(0, 6), wt: rnd(0.5, 2), wd: new THREE.Vector3(), mv: 0, wk: 0, sw: 0, swT: 0.4, hitK: 0 };
+  scene.add(m.g); enemies.push(e); spot.e = e; return e;
+}
+function yetiPose(e, dt) {
+  const S = e.yr, t = e.t; e.wk += dt * e.mv * 2.4;
+  const sw = Math.sin(e.wk) * Math.min(1, e.mv / e.sp);
+  let arms = -0.85 + Math.sin(t * 1.7) * 0.04, lean = 0, armFwd = 0, head = 0;   // arms: sudut lengan dari mendatar (negatif = menggantung ke bawah, positif = terangkat)
+  if (e.wind > 0) {
+    const u = Math.min(1, (1 - e.wind / e.windMax) * 1.35);
+    if (e.atk === 'swipe') { arms = -0.85 + 0.6 * u; armFwd = -0.9 * u; lean = -0.12 * u; }   // tepisan: satu tangan ditarik ke samping-belakang
+    else { arms = -0.85 + 2.0 * u; lean = -0.22 * u; head = -0.2 * u; }                      // hantaman: kedua tangan terangkat tinggi, badan melengkung ke belakang
+  } else if (e.sw > 0) {
+    const u = e.sw / e.swT;
+    if (e.atk === 'swipe') { arms = -0.25 - 0.4 * (1 - u); armFwd = -0.9 * u + 1.3 * (1 - u); lean = 0.18 * (1 - u); }
+    else { arms = (1 - u) * -0.85 + u * 1.15; lean = 0.42 * (1 - u) * Math.min(1, u * 3 + (1 - u)); head = 0.2 * (1 - u); }   // menghantam turun + membungkuk
+  }
+  yetiArm(S, 'L_Bicep_024', arms, 0); yetiArm(S, 'R_Bicep_010', -arms, e.atk === 'swipe' ? armFwd : 0);   // tepisan memakai tangan kanan (ikut berayun pada sumbu tegak)
+  yetiRot(S, 'Mid_Torso_04', 1, 0, 0, lean + Math.abs(sw) * 0.06);
+  yetiRot(S, 'Head_08', 1, 0, 0, head - lean * 0.5);
+  yetiRot(S, 'L_Thigh_038', 1, 0, 0, sw * 0.55); yetiRot(S, 'R_Thigh_042', 1, 0, 0, -sw * 0.55);
+}
+function yetiAI(e, d, dist, dt, pdist) {
+  const pos = e.g.position, px = pos.x, pz = pos.z, C = e.C; e.t += dt; e.mv = 0;
+  const aggroR = e.elder ? YETI.aggroElder : YETI.aggroR;
+  if (neVillageZone(player.position.x, player.position.z, 12)) e.aggro = false;   // pemain di Desa Salju (atau tepat di depannya): Yeti melepas kejaran
+  else if (!e.aggro && pdist < aggroR) e.aggro = true; else if (e.aggro && pdist > aggroR * 2.4) e.aggro = false;
+  const face = (dx, dz, k = 6) => { let df = Math.atan2(dx, dz) - e.g.rotation.y; df = Math.atan2(Math.sin(df), Math.cos(df)); e.g.rotation.y += df * Math.min(1, dt * k); };
+  const fwd = () => new THREE.Vector3(Math.sin(e.g.rotation.y), 0, Math.cos(e.g.rotation.y));
+  if (e.stun > 0) { /* terpental sedikit */ }
+  else if (e.wind > 0) {   // aba-aba: menghadap pemain, lalu serangan jatuh
+    e.wind -= dt; face(d.x, d.z, 5);
+    if (e.wind <= 0) {
+      if (e.atk === 'swipe') { e.sw = e.swT = 0.3; if (pdist < e.r + C.reach + 0.9) { hurtPlayer(Math.round(C.dmg * YETI.swipe.dmgK)); lyra.hurtNear(pos.x, pos.z, e.r + C.reach + 0.9, C.dmg * YETI.swipe.dmgK); shake = Math.max(shake, 0.25); burst(pos.clone().addScaledVector(fwd(), e.r + 0.8).setY(1.3), 0xe8f6ff, 10, 5); }
+      } else { e.sw = e.swT = 0.4; spawnQuake(pos.clone().addScaledVector(fwd(), e.r + C.reach * 0.9), C.rad, C.dmg); }
+    }
+  } else if (e.aggro) {
+    face(d.x, d.z);
+    if (dist > e.r + C.reach + 0.2) { pos.addScaledVector(d, e.sp * dt); e.mv = e.sp; }
+    else if (e.cd <= 0) {
+      e.atk = Math.random() < YETI.swipe.p ? 'swipe' : 'smash'; e.windMax = e.wind = e.atk === 'swipe' ? YETI.swipe.wind : C.wind;
+      e.cd = C.cd * (e.hp < e.max * 0.5 ? 0.75 : 1);   // di bawah 50% HP: lebih agresif
+    }
+  } else {   // berkeliaran pelan di sekitar sarang
+    e.wt -= dt;
+    if (e.wt <= 0) { e.wt = rnd(2.5, 5); if (Math.hypot(px - e.home.x, pz - e.home.z) > 7) e.wd.set(e.home.x - px, 0, e.home.z - pz).normalize(); else if (Math.random() < 0.45) e.wd.set(0, 0, 0); else { const a = rnd(0, Math.PI * 2); e.wd.set(Math.sin(a), 0, Math.cos(a)); } }
+    if (e.wd.lengthSq() > 0) { pos.addScaledVector(e.wd, 1.2 * dt); e.mv = 1.2; face(e.wd.x, e.wd.z, 3); }
+  }
+  e.sw = Math.max(0, e.sw - dt);
+  world.collide(pos, e.r * 0.8);   // tidak menembus pohon, batu & tepi sungai
+  if (neDescZone(pos.x, pos.z) < 2 || neVillageZone(pos.x, pos.z, 20)) { pos.x = px; pos.z = pz; }   // tetap di lembah & Hutan Salju; Desa Salju + sabuk 20 m di sekelilingnya terlarang bagi monster
+  const em = e.flash > 0 ? 0xffffff : e.wind > 0 ? 0x2a4a6a : 0x000000;
+  for (const m of e.mats) m.emissive.setHex(em);
+  yetiPose(e, dt);
+  const show = e.hp < e.max && !e.dying; e.bar.g.visible = show;
+  if (show) { e.bar.fill.scale.x = Math.max(0.001, e.hp / e.max) * e.bar.w; e.bar.g.rotation.y = Math.atan2(cam.position.x - pos.x, cam.position.z - pos.z) - e.g.rotation.y; }
+}
+function yetiDeath(e) {   // hancur berkeping es + item berhamburan; sarang terisi lagi setelah jeda
+  const p = e.g.position, big = e.elder; burst(p.clone().setY(big ? 3 : 1.6), 0xe8f6ff, big ? 60 : 36, big ? 11 : 8); burst(p.clone().setY(1), 0x9fd8ff, 24, 6); shake = Math.max(shake, big ? 0.8 : 0.45); audio.sfx('thud', { vol: 0.9, rate: big ? 0.4 : 0.55 });
+  try { loot.drop(p.x, p.z, 'es', { strong: true }); if (big) { loot.drop(p.x + 1, p.z, 'es', { strong: true }); loot.drop(p.x - 1, p.z, 'es', { strong: true }); } } catch (err) { /* item hanya dijatuhkan bila sistem item aktif di dunia luar */ }
+  if (e.spot) { e.spot.cool = e.C.respawn; e.spot.e = null; }
+}
+function yetiSpotWorld(sp) { const q = neDescToAxis(sp.s, sp.u); return neAxisToWorld(q.d, q.off); }
+function trySpawnYeti(sp) {
+  const w = yetiSpotWorld(sp), r = sp.elder ? YETI.elder.r : YETI.normal.r;
+  for (let i = 0; i < 9; i++) {   // titik sarang kebetulan di batang pohon / batu -> geser sedikit
+    const a = i * 2.4, rr = i * 1.6, p = new THREE.Vector3(w.x + Math.cos(a) * rr, 0, w.z + Math.sin(a) * rr); world.collide(p, r * 0.8);
+    if (Math.hypot(p.x - (w.x + Math.cos(a) * rr), p.z - (w.z + Math.sin(a) * rr)) > 0.05 || neDescZone(p.x, p.z) < 2 || neVillageZone(p.x, p.z, 20)) continue;
+    const e = mkYeti(p.x, p.z, sp); burst(new THREE.Vector3(p.x, 0.6, p.z), e.col, 16, 4); return true;
+  }
+  return false;
+}
+function yetiTick(dt) {   // Yeti muncul bertahap saat pemain mendekati sarangnya; hilang diam-diam bila pemain jauh
+  if (!yetiGltf || !yetiBox) return;
+  let alive = enemies.reduce((n, e) => n + (e.yeti ? 1 : 0), 0);
+  for (const sp of NE_YETI_SPOTS) {
+    if (sp.cool > 0) sp.cool -= dt;
+    if (sp.e && !enemies.includes(sp.e)) sp.e = null;   // sudah dibersihkan dari luar (clearWild / ganti area)
+    const w = yetiSpotWorld(sp), d = Math.hypot(w.x - player.position.x, w.z - player.position.z);
+    if (sp.e) { if (!sp.e.dying && !sp.e.aggro && sp.e.g.position.distanceTo(player.position) > YETI.despawnR) { removeWild(sp.e); sp.e = null; alive--; } continue; }
+    if (sp.cool > 0 || d > YETI.spawnR || d < 24 || alive >= YETI.max + (sp.elder ? 1 : 0)) continue;
+    if (neDescZone(player.position.x, player.position.z, 60) < 2) continue;   // hanya bila pemain sudah dekat lembah / hutan
+    if (trySpawnYeti(sp)) alive++;
+  }
+}
+
 // ---------- Input ----------
 const keys = {};
 addEventListener('keydown', e => {
@@ -2935,7 +3171,8 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyF') toggleFS(); // layar penuh
   if ((e.code === 'KeyR' || e.code === 'Enter') && canAgain) restart(); // R / Enter (khusus keyboard PC)
 });
-addEventListener('keyup', e => keys[e.code] = false);
+addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Digit2') slRelease(); });   // lepas tombol 2 = lepas bidikan skill 2
+addEventListener('blur', () => slRelease());
 addEventListener('mousedown', e => {
   if (settingsOpen) return;
   if (orbit() && !locked() && !slCamOn() && e.button === 0 && e.target === renderer.domElement && !document.body.classList.contains('touch') && renderer.domElement.requestPointerLock) {
@@ -3068,7 +3305,7 @@ function startVS() {
   VS.active = true;
   Object.assign(P, { vs: VS.dur, atk: 0, cross: false, roll: 0 }); VS.hits = 0;
   for (const m of [slash.material, dMat, xMat, xCore, cresMat, cresCore, speedMat]) m.opacity = 0;
-  vsFx.visible = true; pulse(0xa23cff, 4.3, 0.45); lineSparks(player.position.clone().setY(0.2), 22, 6, 0.8); shake = 0.3;
+  vsFx.visible = true; pulse(0xa23cff, 4.3, 0.45); lineSparks(player.position.clone().setY(fxY + 0.2), 22, 6, 0.8); shake = 0.3;
 }
 function endVS() { // kembalikan badan tegak
   if (!VS.active) return; VS.active = false;
@@ -3079,9 +3316,9 @@ function endVS() { // kembalikan badan tegak
 function vsHit() { // serangan area di sekitar pemain
   for (const e of [...enemies]) {
     const d = e.g.position.clone().sub(player.position).setY(0), l = d.length();
-    if (l < 4.3 + e.r) { hurtEnemy(e, 26, d.normalize(), 14); lineSparks(e.g.position.clone().setY(1.2), 14, 7); }
+    if (l < 4.3 + e.r) { hurtEnemy(e, 26, d.normalize(), 14); lineSparks(e.g.position.clone().setY(fxY + 1.2), 14, 7); }
   }
-  pulse(0xa23cff, 4.3, 0.3); lineSparks(player.position.clone().setY(1), 14, 8); shake = 0.35;
+  pulse(0xa23cff, 4.3, 0.3); lineSparks(player.position.clone().setY(fxY + 1), 14, 8); shake = 0.35;
 }
 function vsTick(dt) { // waktu, gerak maju, kebal, serangan
   P.vs -= dt; const u = (VS.dur - P.vs) / VS.dur;
@@ -3115,73 +3352,232 @@ function vsPose(dt) { // badan + pedang + efek tiap frame
   pose(b.rLA, 0, 0, 0, kb); pose(b.lLA, 0, 0, 0, kb); pose(b.head, -0.2, 0, 0, kb);
 }
 
-// ---------- Skill 2: Slash Besar ----------
-// Kuda-kuda rendah, badan memutar ke kanan (bersiap), lalu menerjang maju sambil mengayunkan dua pedang dalam satu tebasan besar
-// dari kanan ke kiri. Muncul bulan sabit ungu raksasa (ekor tipis redup -> kepala tebal putih keunguan), percikan garis, 2 kali serangan area di depan.
-const SL = { dur: 1.0, hitAt: [0.40, 0.50], hits: 0, a0: Math.PI - 0.45, a1: Math.PI * 2 + 0.45 }; // a0 -> a1: sudut sapuan (kanan -> depan -> kiri)
-const slFx = new THREE.Group(); slFx.visible = false; player.add(slFx);
-const slPlane = new THREE.Group(); slPlane.rotation.x = -Math.PI / 2; slFx.add(slPlane); // bidang XY dibaringkan jadi horizontal
-const slMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false });
-const slRibbons = [];
-// [radius, panjang busur, lebar, tinggi, kemiringan, geser sudut, kecepatan relatif]: 2 sabit pedang utama + sabit luar tipis + sabit dalam
-[[3.3, 3.5, 1.05, 0.95, 0.32, 0, 1], [2.9, 3.1, 0.8, 1.2, -0.3, 0.14, 1], [4.4, 3.9, 0.45, 1.05, 0.12, -0.1, 0.94], [2.3, 2.5, 0.5, 0.8, 0.5, 0.22, 1.06]].forEach(([rc, span, W, h, tilt, off, rate]) => {
-  const piv = new THREE.Group(); piv.add(new THREE.Mesh(ribbonGeo(rc, span, W), slMat));
-  const hold = new THREE.Group(); hold.position.z = h; hold.rotation.x = tilt; hold.add(piv); slPlane.add(hold);
-  slRibbons.push({ piv, off, rate });
-});
-const slHead = (r, a, h) => new THREE.Vector3(r * Math.cos(a), h, -r * Math.sin(a)).applyAxisAngle(UP, player.rotation.y).add(player.position); // posisi dunia ujung sabit
-
+// ---------- Skill 2: Dash Zig-zag Petir ----------
+// Aba-aba singkat (badan merunduk, petir merayap ke badan), lalu menerjang ZIG-ZAG: ruas-ruas lurus yang berganti belok kiri-kanan, tiap ruas meninggalkan
+// garis petir ungu & menebas musuh yang dilewati; di tiap tikungan sambaran petir ungu turun dari langit (serangan area). Kebal selama terjang.
+// DUA CARA PAKAI:
+//  (1) KETUK tombol 2 (lepas sebelum SL.holdT detik) = terjang biasa: arah utama = arah tombol gerak (WASD / joystick, relatif kamera) saat menekan skill (tanpa input = arah hadap),
+//      bisa DIBELOKKAN selama terjang dengan menahan arah lain (kecepatan putar SL.steer). Sama seperti sebelumnya.
+//  (2) TAHAN tombol 2 = MODE BIDIK: Luis merunduk mengumpulkan petir, titik bidik (reticle + garis jalur zig-zag + cincin di tanah) muncul.
+//      WASD / joystick menggeser titik bidik (relatif kamera), SPASI / tombol serang (layar sentuh) = titik bidik NAIK, SHIFT / tombol guling = TURUN.
+//      Lepas tombol 2 (atau waktu bidik SL.aimMax habis) = menerjang zig-zag menuju titik itu, termasuk ke atas (di udara). Setelah selesai Luis jatuh ke tanah.
+// Memakai ulang efek petir ungu skill 5 (ptBolt, ptRing, ptLight). Semua angka bisa diubah di SL.
+const SL = {
+  wind: 0.18,       // aba-aba sebelum terjang (detik) - ketukan biasa
+  legs: 5,          // jumlah ruas zig-zag (ketukan biasa; mode bidik minimal segini)
+  legLen: 5.4,      // panjang tiap ruas (m) - ketukan biasa
+  legT: 0.13,       // lama tiap ruas (detik) - ketukan biasa: kecepatan = legLen / legT (±41 m/detik)
+  angle: 0.85,      // belokan tiap ruas dari arah utama, kiri / kanan bergantian (rad, ±49°) - ketukan biasa
+  steer: 4.5,       // kecepatan memutar arah utama mengikuti arah yang ditahan pemain (rad/detik) - ketukan biasa
+  rec: 0.3,         // jeda pemulihan setelah ruas terakhir
+  hitR: 1.5,        // kelonggaran kena di sepanjang ruas (ditambah radius musuh)
+  dmg: 22,          // tebasan di sepanjang ruas (tiap musuh kena sekali per ruas)
+  cornerR: 3.2, cornerDmg: 16,   // sambaran petir di tiap tikungan: radius & damage
+  // ---- MODE BIDIK (tahan tombol 2) ----
+  holdT: 0.22,      // tahan lebih lama dari ini (detik) = mode bidik; lebih singkat = terjang biasa
+  aimMax: 2.0,      // batas waktu membidik (detik); habis = otomatis menerjang
+  aimDef: 14,       // jarak awal titik bidik di depan Luis (m)
+  aimSp: 16,        // kecepatan titik bidik digeser WASD / joystick (m/detik)
+  aimUp: 9,         // kecepatan titik bidik naik / turun (m/detik)
+  aimMinD: 5, aimMaxD: 34,   // jarak datar titik bidik dari Luis: minimum & maksimum (m)
+  aimMaxH: 22,      // tinggi maksimum titik bidik di atas tanah (m); di dalam bangunan = 0 (tidak bisa naik)
+  legMax: 7,        // panjang maksimum tiap ruas (m): makin jauh bidikan, makin banyak ruas
+  ampMin: 2.5, ampMax: 5, ampK: 0.55,   // simpangan zig-zag kiri-kanan dari garis lurus (m) = panjang ruas * ampK, dibatasi min-maks
+  speed: 55, ltMin: 0.1, ltMax: 0.2,    // kecepatan terjang mode bidik (m/detik) -> lama tiap ruas dibatasi min-maks (detik)
+  windA: 0.1,       // aba-aba singkat setelah melepas tombol (mode bidik)
+  hitV: 1.2,        // kelonggaran kena arah vertikal (mode bidik)
+  ph: '', t: 0, leg: 0, head: 0, side: 1, hit: new Set(),
+  A: new THREE.Vector3(), h: 0, way: null, from: new THREE.Vector3(), lt: 0.13, air: false, pid: -1, upBtn: false, dnBtn: false
+};
+const slTotal = () => SL.wind + SL.legs * SL.legT + SL.rec;
+function slInputDir() { // arah yang sedang ditahan pemain (radian, relatif kamera); null = tidak ada input
+  const mv = new THREE.Vector3((keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), 0, (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0));
+  if (Math.hypot(stick.x, stick.y) > 0.2) { mv.x += stick.x; mv.z += stick.y; }
+  mv.applyAxisAngle(UP, camYaw);
+  return mv.lengthSq() > 0.01 ? Math.atan2(mv.x, mv.z) : null;
+}
+function slInputVec() { // vektor gerak (relatif kamera, bidang xz) untuk menggeser titik bidik; panjang <= 1
+  const mv = new THREE.Vector3((keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), 0, (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0));
+  if (Math.hypot(stick.x, stick.y) > 0.2) { mv.x += stick.x; mv.z += stick.y; }
+  mv.applyAxisAngle(UP, camYaw);
+  if (mv.lengthSq() > 1) mv.normalize();
+  return mv;
+}
+const slGround = (x, z, y) => (state === 'world' && inKekaisaran) ? world.kekGroundY(x, z) : neMtnH(x, z, y);   // tinggi tanah di (x, z)
+const gOpen = () => state === 'world' && !(inGuild || inInn || inAula || inPalace);   // di luar bangunan: tanah mengikuti medan (gunung); di dalam / arena: pakai fxY
+const gAt = (x, z, fb = fxY) => gOpen() ? slGround(x, z, fxY) : fb;   // tinggi tanah di titik (x, z) - untuk efek yang menyebar jauh dari Luis
+const gSet = (v, off = 0) => v.setY(gAt(v.x, v.z) + off);
+const slMaxH = () => (state === 'world' && (inGuild || inInn || inAula || inPalace)) ? 0 : SL.aimMaxH;
+function slAimPoint() { // titik bidik di dunia (tanah di titik itu + SL.h)
+  const p = player.position, x = p.x + SL.A.x, z = p.z + SL.A.z;
+  return new THREE.Vector3(x, slGround(x, z, p.y) + SL.h, z);
+}
+function slPlan(S, T) { // titik-titik belok zig-zag dari S menuju T (titik terakhir = T persis)
+  const ax = T.clone().sub(S), dist = ax.length(), n = Math.max(SL.legs, Math.ceil(dist / SL.legMax));
+  const lat = new THREE.Vector3(ax.z, 0, -ax.x);   // tegak lurus arah terjang, mendatar
+  if (lat.lengthSq() < 1) lat.set(Math.cos(camYaw), 0, -Math.sin(camYaw));   // hampir lurus ke atas: pakai sisi kanan kamera
+  lat.normalize();
+  const amp = Math.min(SL.ampMax, Math.max(SL.ampMin, dist / n * SL.ampK)), pts = [];
+  for (let i = 1; i <= n; i++) pts.push(S.clone().addScaledVector(ax, i / n).addScaledVector(lat, i === n ? 0 : (i % 2 ? SL.side : -SL.side) * amp));
+  return pts;
+}
+// ---- penanda bidikan (dibuat saat pertama dipakai, karena helper efek petir didefinisikan setelah blok ini) ----
+let SLA = null;
+function slAimInit() {
+  if (SLA) return SLA;
+  const ret = new THREE.Sprite(ptSprMat('ret', { opacity: 0.95 })); ret.renderOrder = 40;
+  const mk = (n, c) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: 0.95, depthTest: false })); l.frustumCulled = false; l.renderOrder = 38; return l; };
+  const path = mk(24, 0xcdb4ff), beam = mk(2, 0x8a4dff);
+  const ring = new THREE.Mesh(ptRingG, glowMat(0xb98cff, 0.85)), ring2 = new THREE.Mesh(ptRingG, glowMat(0xefe4ff, 0.6));
+  ring.rotation.x = ring2.rotation.x = -Math.PI / 2; ring.renderOrder = ring2.renderOrder = 37;
+  SLA = { ret, path, beam, ring, ring2 }; for (const o of Object.values(SLA)) { o.visible = false; scene.add(o); }
+  return SLA;
+}
+function slAimShow(on) { if (!SLA && !on) return; const f = slAimInit(); for (const o of Object.values(f)) o.visible = on; }
+function slAimUpdate() {
+  const f = slAimInit(), S = player.position, T = slAimPoint(), pts = [S.clone(), ...slPlan(S, T)].slice(0, 24), ar = f.path.geometry.attributes.position;
+  pts.forEach((p, i) => ar.setXYZ(i, p.x, p.y + 0.9, p.z)); ar.needsUpdate = true; f.path.geometry.setDrawRange(0, pts.length);
+  const gy = slGround(T.x, T.z, S.y), br = f.beam.geometry.attributes.position;
+  br.setXYZ(0, T.x, gy + 0.05, T.z); br.setXYZ(1, T.x, T.y, T.z); br.needsUpdate = true; f.beam.visible = SL.h > 0.4;
+  const k = 1 + 0.12 * Math.sin(SL.t * 14), spin = SL.t * 2.2;
+  f.ring.position.set(T.x, gy + 0.1, T.z); f.ring.scale.setScalar(SL.cornerR * k); f.ring2.position.set(T.x, gy + 0.12, T.z); f.ring2.scale.setScalar(SL.cornerR * 0.55 / k);
+  f.ret.position.copy(T).setY(T.y + 0.9); f.ret.scale.setScalar(2.6 * k); f.ret.material.rotation = spin;
+  const full = clamp01(SL.t / SL.holdT); f.ret.material.opacity = 0.35 + 0.6 * full; f.path.material.opacity = 0.25 + 0.7 * full;
+}
+function slCharge(pp, gy, k) { // busur petir merayap dari lantai ke badan + kilatan (aba-aba & saat membidik)
+  for (let i = 0; i < 2; i++) if (Math.random() < 0.6) {
+    const a = rnd(0, 6.283), r = 0.9 + 0.9 * Math.random();
+    ptBolt(new THREE.Vector3(pp.x + Math.cos(a) * r, gy + 0.06, pp.z + Math.sin(a) * r), new THREE.Vector3(pp.x + rnd(-0.35, 0.35), gy + rnd(0.3, 1.8), pp.z + rnd(-0.35, 0.35)), { seg: 5, jit: 0.22, w: 0.022, life: 0.14 });
+  }
+  PT.flash = Math.max(PT.flash, 0.15 + 0.3 * k); ptLight.position.set(pp.x, gy + 1.2, pp.z);
+}
 function startSL() {
-  audio.sfx('slash', { delay: 0.2 }); // puncak suara tepat saat tebasan (0,40-0,50 dtk)
-  Object.assign(P, { sl: SL.dur, atk: 0, cross: false, roll: 0 }); SL.hits = 0;
-  for (const m of [slash.material, dMat, xMat, xCore, cresMat, cresCore, speedMat]) m.opacity = 0;
-  slFx.visible = true; slMat.opacity = 0;
-  pulse(0xa23cff, 3.2, 0.35); lineSparks(player.position.clone().setY(0.2), 14, 5, 0.6);
+  const inp = slInputDir(), dir = inp !== null ? inp : P.face;
+  SL.head = dir; SL.ph = 'aim'; SL.t = 0; SL.leg = 0; SL.way = null; SL.air = false; SL.h = 0; SL.side = Math.random() < 0.5 ? 1 : -1; SL.hit.clear();
+  SL.A.set(Math.sin(dir), 0, Math.cos(dir)).multiplyScalar(SL.aimDef);
+  Object.assign(P, { sl: SL.aimMax + 5, atk: 0, cross: false, roll: 0 }); P.face = dir;   // P.sl diatur ulang saat tombol dilepas (slRelease)
+  pulse(0xa23cff, 3.2, 0.35); lineSparks(player.position.clone().setY(player.position.y + 0.2), 14, 5, 0.6);
+}
+function slRelease() { // tombol 2 dilepas (atau waktu bidik habis): ketukan = terjang biasa, tahan = terjang ke titik bidik
+  if (SL.ph !== 'aim' || P.sl <= 0) return;
+  SK.s2.t = SK.s2.cd;   // jeda (cooldown) dihitung dari saat terjang dimulai
+  if (SL.t < SL.holdT) { // ketukan: terjang biasa
+    const inp = slInputDir(); SL.head = inp !== null ? inp : P.face; SL.way = null; P.face = SL.head;
+    SL.ph = 'wind'; SL.t = 0; P.sl = slTotal() + 0.05;
+  } else {
+    const S = player.position.clone(), T = slAimPoint(); SL.way = slPlan(S, T); SL.from.copy(S); SL.leg = 0;
+    let len = 0, prev = S; for (const w of SL.way) { len += prev.distanceTo(w); prev = w; }
+    SL.lt = Math.min(SL.ltMax, Math.max(SL.ltMin, len / SL.way.length / SL.speed));
+    SL.air = SL.way.some(w => w.y > slGround(w.x, w.z, S.y) + 0.5);
+    SL.ph = 'wind'; SL.t = 0; P.sl = SL.windA + SL.way.length * SL.lt + SL.rec + 0.1;
+  }
+  slAimShow(false);
 }
 function endSL() {
-  if (!P.sl && !slFx.visible) return;
-  P.sl = 0; slFx.visible = false; slMat.opacity = 0; P.drawT = DRAW_HOLD;
+  if (!P.sl && !SL.ph) return;
+  const was = SL.ph; P.sl = 0; SL.ph = ''; P.drawT = DRAW_HOLD; slAimShow(false);
+  if (SL.air && was) { P.air = true; P.vy = 0; P.kb.set(0, 0, 0); }   // berhenti di udara: jatuh ke tanah (airTick)
+  SL.air = false; SL.way = null;
 }
-function slHit(power) { // serangan area: setengah lingkaran besar di depan pemain
-  const f = faceVec();
+function slCorner() { // tikungan: sambaran petir ungu dari langit tepat di posisi pemain (+ serangan area)
+  const p = player.position.clone(), gy = p.y, g0 = p.clone().setY(gy), top = p.clone().add(new THREE.Vector3(rnd(-1, 1), 0, rnd(-1, 1))).setY(gy + 16);
+  ptBolt(top, g0, { seg: 12, jit: 0.9, w: 0.13, life: 0.35, fork: 0.3 });
+  ptBolt(top.clone().add(new THREE.Vector3(rnd(-1, 1), 0, rnd(-1, 1))), g0, { seg: 10, jit: 0.7, w: 0.06, life: 0.25, fork: 0.2 });
+  ptRing(g0.clone().setY(gy + 0.1), null, 4.5, 0.38); ptRing(g0.clone().setY(gy + 0.1), null, 2.6, 0.26, { c: 0xffffff, delay: 0.04 });
+  lineSparks(g0.clone().setY(gy + 0.4), 24, 10, 1.6); burst(g0.clone().setY(gy + 0.5), 0xa23cff, 10, 7);
+  PT.flash = 1; ptLight.position.set(p.x, gy + 3, p.z); ptPlay('strike', 0.8); shake = Math.max(shake, 0.4);
   for (const e of [...enemies]) {
-    const d = e.g.position.clone().sub(player.position).setY(0), l = d.length();
-    if (l < 6.2 + e.r && (l < 1.2 || d.clone().normalize().dot(f) > -0.2)) {
-      hurtEnemy(e, power, d.normalize(), 22); lineSparks(e.g.position.clone().setY(1.2), 20, 9);
-    }
+    if (e.dying || e.done) continue;
+    const d = e.g.position.clone().sub(p); if (!SL.way) d.setY(0);   // mode bidik: jarak 3D (bisa mengenai musuh yang ada di udara)
+    if (d.length() < SL.cornerR + e.r) hurtEnemy(e, SL.cornerDmg, d.setY(0).normalize(), 10);
   }
-  pulse(0xb35cff, 5.5, 0.4); lineSparks(player.position.clone().addScaledVector(f, 3).setY(0.8), 26, 9); shake = 0.5;
 }
-function slTick(dt) { // waktu, terjang maju, kebal, serangan, percikan
-  P.sl -= dt; const u = clamp01((SL.dur - P.sl) / SL.dur);
-  P.inv = Math.max(P.inv, 0.15);
-  player.position.addScaledVector(faceVec(), (u < 0.26 ? 0 : u < 0.52 ? 9 : 1.2) * dt); // diam bersiap -> menerjang -> meluncur pelan
-  while (SL.hits < SL.hitAt.length && u >= SL.hitAt[SL.hits]) { slHit(SL.hits === 0 ? 30 : 24); SL.hits++; }
-  if (u > 0.28 && u < 0.62) { // percikan garis mengikuti ujung sabit
-    const e = clamp01((u - 0.26) / 0.32), a = SL.a0 + (SL.a1 - SL.a0) * (1 - Math.pow(1 - e, 3));
-    lineSparks(slHead(3.3, a, 0.95), 2, 6, 0.8);
+function slSegHit(a, b, p, rad) { // titik p dalam jarak rad dari ruas a-b (3D)?
+  const ab = b.clone().sub(a), l2 = ab.lengthSq(), t = l2 > 1e-6 ? clamp01(p.clone().sub(a).dot(ab) / l2) : 0;
+  return a.clone().addScaledVector(ab, t).distanceTo(p) < rad;
+}
+function slAimTick(dt) { // mode bidik: geser titik bidik, naik / turun, menghadap ke titik bidik, terjang otomatis bila waktu habis
+  const pp = player.position, gy = pp.y, A = SL.A;
+  A.addScaledVector(slInputVec(), SL.aimSp * dt);
+  let l = Math.hypot(A.x, A.z);
+  if (l < 1e-3) { A.set(Math.sin(P.face), 0, Math.cos(P.face)); l = 1; }
+  const lc = Math.min(SL.aimMaxD, Math.max(SL.aimMinD, l)); A.x *= lc / l; A.z *= lc / l;
+  const up = keys.Space || SL.upBtn, dn = keys.ShiftLeft || keys.ShiftRight || SL.dnBtn;
+  SL.h = Math.min(slMaxH(), Math.max(0, SL.h + ((up ? 1 : 0) - (dn ? 1 : 0)) * SL.aimUp * dt));
+  P.face = Math.atan2(A.x, A.z);
+  slCharge(pp, gy, clamp01(SL.t / SL.holdT));
+  slAimShow(true); slAimUpdate();
+  if (SL.t >= SL.aimMax) slRelease();
+}
+function slTick(dt) {
+  P.sl -= dt; SL.t += dt;
+  if (SL.ph !== 'aim') P.inv = Math.max(P.inv, 0.2);   // kebal hanya saat aba-aba / terjang / pemulihan (bukan selama membidik)
+  if (SL.ph === 'aim') { slAimTick(dt); return; }
+  const pp = player.position, gy = pp.y, inp = slInputDir();
+  if (!SL.way && inp !== null && SL.ph !== 'rec') { // terjang biasa: arah utama mengikuti arah yang ditahan pemain (dibatasi kecepatan putar)
+    const df = Math.atan2(Math.sin(inp - SL.head), Math.cos(inp - SL.head)), mx = SL.steer * dt;
+    SL.head += Math.max(-mx, Math.min(mx, df));
+  }
+  if (SL.ph === 'wind') {
+    if (SL.way) P.face = Math.atan2(SL.way[0].x - pp.x, SL.way[0].z - pp.z); else P.face = SL.head;
+    const wt = SL.way ? SL.windA : SL.wind;
+    slCharge(pp, gy, clamp01(SL.t / wt));
+    if (SL.t >= wt) { SL.ph = 'dash'; SL.t = 0; SL.leg = 0; SL.hit.clear(); ptPlay('dash'); shake = Math.max(shake, 0.3); }
+  } else if (SL.ph === 'dash') {
+    const a = pp.clone();
+    if (SL.way) { // mode bidik: bergerak lurus dari titik belok ke titik belok berikutnya (bisa naik ke atas)
+      const tgt = SL.way[SL.leg], u = clamp01(SL.t / SL.lt);
+      pp.copy(SL.from).lerp(tgt, u);
+      const mx = pp.x - a.x, mz = pp.z - a.z; if (mx * mx + mz * mz > 1e-6) P.face = Math.atan2(mx, mz);
+    } else {
+      const ang = SL.head + SL.side * SL.angle, step = SL.legLen / SL.legT * dt;
+      P.face = ang; pp.x += Math.sin(ang) * step; pp.z += Math.cos(ang) * step;
+    }
+    const b = pp.clone();
+    ptBolt(a.clone().setY(a.y + 1), b.clone().setY(b.y + 1), { seg: 3, jit: 0.16, w: 0.13, life: 0.5, glow: 0x8a4dff });   // garis petir zig-zag yang tertinggal di belakang
+    ptBolt(a.clone().setY(a.y + 0.35), b.clone().setY(b.y + 0.35), { seg: 2, jit: 0.1, w: 0.05, life: 0.35, glow: 0x7a3dff });
+    for (let i = 0; i < 2; i++) { // busur petir menyambar di sekeliling badan
+      const o = new THREE.Vector3(b.x + rnd(-0.6, 0.6), b.y + rnd(0.2, 1.8), b.z + rnd(-0.6, 0.6));
+      ptBolt(o, o.clone().add(new THREE.Vector3(rnd(-1.6, 1.6), rnd(-0.8, 1.2), rnd(-1.6, 1.6))), { seg: 5, jit: 0.25, w: 0.03, life: 0.18 });
+    }
+    lineSparks(b.clone().setY(b.y + 0.2), 3, 7, 1.0);
+    const dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz;
+    for (const e of [...enemies]) { // musuh yang dilewati ruas ini (diperiksa sepanjang ruas, jadi tidak tembus karena terlalu cepat)
+      if (e.dying || e.done || SL.hit.has(e)) continue;
+      let hit;
+      if (SL.way) hit = slSegHit(a, b, e.g.position, e.r + SL.hitR + SL.hitV);   // 3D
+      else { const t = l2 > 1e-6 ? clamp01(((e.g.position.x - a.x) * dx + (e.g.position.z - a.z) * dz) / l2) : 0; hit = Math.hypot(e.g.position.x - (a.x + dx * t), e.g.position.z - (a.z + dz * t)) < e.r + SL.hitR; }
+      if (hit) { SL.hit.add(e); const d = e.g.position.clone().sub(pp).setY(0); hurtEnemy(e, SL.dmg, d.normalize(), 12); lineSparks(e.g.position.clone().setY(e.g.position.y + 1.2), 18, 9); }
+    }
+    PT.flash = Math.max(PT.flash, 0.45); ptLight.position.set(b.x, b.y + 1.5, b.z);
+    const legT = SL.way ? SL.lt : SL.legT, nLegs = SL.way ? SL.way.length : SL.legs;
+    if (SL.t >= legT) { // ujung ruas = tikungan: sambaran petir, lalu belok ke sisi sebaliknya
+      if (SL.way) { pp.copy(SL.way[SL.leg]); SL.from.copy(pp); }
+      slCorner(); SL.leg++; SL.side = -SL.side; SL.hit.clear(); SL.t -= legT;
+      if (SL.leg >= nLegs) { SL.ph = 'rec'; SL.t = 0; pulse(0xa23cff, 3.5, 0.4); lineSparks(pp.clone().setY(pp.y + 0.2), 30, 9, 0.9); }
+    }
+  } else if (SL.ph === 'rec') {
+    if (SL.t < 0.2 && Math.random() < 0.5) lineSparks(pp.clone().setY(pp.y + 0.15), 1, 5, 1.2);
+    if (SL.t >= SL.rec) endSL();
   }
   if (P.sl <= 0) endSL();
 }
-function slPose(dt) { // badan + pedang + efek tiap frame
-  const u = clamp01((SL.dur - P.sl) / SL.dur), q = clamp01((u - 0.26) / 0.32), e = 1 - Math.pow(1 - q, 3); // e: sapuan cepat di awal, melambat di akhir
-  slFx.position.set(0, 0, -0.2);
-  const env = Math.pow(Math.sin(Math.PI * clamp01((u - 0.24) / 0.6)), 0.5); // sabit muncul cepat, memudar pelan
-  slMat.opacity = (u > 0.24 && u < 0.84 ? env : 0) * 0.95;
-  for (const r of slRibbons) r.piv.rotation.z = SL.a0 + r.off + (SL.a1 - SL.a0) * e * r.rate;
-  slFx.scale.setScalar(0.85 + 0.2 * e);
+function slPose(dt) { // badan + pedang tiap frame
   if (!bones) return;
-  const b = bones, kb = 1 - Math.exp(-dt * 24), kf = 1 - Math.exp(-dt * 30), kg = 1 - Math.exp(-dt * 26), k = 1 - Math.exp(-dt * 14);
-  const lift = 0.22 * Math.sin(Math.PI * clamp01((u - 0.2) / 0.45)); // melompat kecil saat menerjang
-  if (vrm) vrm.scene.position.y += (lift - 0.06 * (u < 0.26 ? u / 0.26 : 0) - vrm.scene.position.y) * kg;
-  const ty = -0.7 + 1.5 * e; // puntiran badan: ke kanan (bersiap) -> ke kiri (menebas)
-  const rr = clamp01((u - 0.82) / 0.18); // fase kembali
-  let px = (-1.0 + 3.2 * e) * (1 - rr) + 0.1 * rr, zx = (0.5 + 0.5 * e) * (1 - rr) + 0.4 * rr;
-  pose(b.rUA, 0, px, zx, kf); pose(b.lUA, 0, -px, zx, kf); pose(b.rLA, 0, 0, 0, k); pose(b.lLA, 0, 0, 0, k);
-  const tw = ty * (1 - rr);
-  pose(b.spine, 0.3 * (1 - rr) + 0.1 * rr, tw * 0.6, 0, kb); pose(b.chest, 0, tw * 0.4, 0, kb); pose(b.hips, 0.2 * (1 - rr), -tw * 0.3, 0, kb);
-  pose(b.lUL, -0.6, 0, 0.3, kb); pose(b.rUL, 0.5, 0, -0.3, kb); pose(b.lLL, 0.85, 0, 0, kb); pose(b.rLL, 0.25, 0, 0, kb); // kuda-kuda lebar (lunge)
-  pose(b.head, -0.1 - 0.25 * e, -tw * 0.2, 0, k);
+  const b = bones, kb = 1 - Math.exp(-dt * 24), k = 1 - Math.exp(-dt * 14), s = SL.side;
+  if (SL.ph === 'wind' || SL.ph === 'aim') { // merunduk, pedang ditarik ke belakang
+    pose(b.hips, 0.3, 0, 0, kb); pose(b.spine, 0.35, 0, 0, kb); pose(b.chest, 0, 0, 0, kb);
+    pose(b.rUA, 0, -0.6, 0.5, kb); pose(b.lUA, 0, 0.6, -0.5, kb); pose(b.rLA, 0, 0, 0, k); pose(b.lLA, 0, 0, 0, k);
+    pose(b.lUL, -0.7, 0, 0.1, kb); pose(b.rUL, 0.4, 0, -0.1, kb); pose(b.lLL, 1.0, 0, 0, kb); pose(b.rLL, 0.6, 0, 0, kb); pose(b.head, -0.1, 0, 0, k);
+  } else if (SL.ph === 'dash') { // condong ke depan, badan memuntir ke arah belokan, kaki melangkah lebar bergantian
+    pose(b.hips, 0.25, -s * 0.25, 0, kb); pose(b.spine, 0.55, s * 0.4, 0, kb); pose(b.chest, 0, s * 0.35, 0, kb);
+    pose(b.rUA, 0, -1.0, 0.4, kb); pose(b.lUA, 0, 1.0, -0.4, kb); pose(b.rLA, 0, 0, 0, k); pose(b.lLA, 0, 0, 0, k);
+    pose(b.lUL, s > 0 ? -1.0 : 0.5, 0, 0.1, kb); pose(b.rUL, s > 0 ? 0.5 : -1.0, 0, -0.1, kb); pose(b.lLL, s > 0 ? 1.1 : 0.4, 0, 0, kb); pose(b.rLL, s > 0 ? 0.4 : 1.1, 0, 0, kb); pose(b.head, -0.2, -s * 0.2, 0, k);
+  } else { // pemulihan: berdiri kembali
+    pose(b.hips, 0.1, 0, 0, k); pose(b.spine, 0.15, 0, 0, k); pose(b.chest, 0, 0, 0, k);
+    pose(b.rUA, 0, 0.1, 0.4, k); pose(b.lUA, 0, -0.1, -0.4, k); pose(b.rLA, 0, 0, 0, k); pose(b.lLA, 0, 0, 0, k);
+    pose(b.lUL, -0.3, 0, 0.1, k); pose(b.rUL, 0.2, 0, -0.1, k); pose(b.lLL, 0.4, 0, 0, k); pose(b.rLL, 0.2, 0, 0, k); pose(b.head, 0, 0, 0, k);
+  }
 }
 
 // ---------- Skill 3: Summon Blade ----------
@@ -3235,9 +3631,9 @@ function startSM() {
     const bl = makeBigBlade(), rg = makeSummonRing();
     bl.g.visible = rg.g.visible = false; scene.add(bl.g, rg.g);
     const k = Math.max(1, t.r / 0.9), rate = 1 / Math.pow(k, 0.4); // k = skala ukuran musuh; musuh besar -> pedang lebih besar & suara lebih berat
-    blades.push({ ...t, bl, rg, k, rate, t: 0, delay: 0.3 + i * 0.13, imp: false, sndAt: 0.92 - 0.25 / rate });
+    blades.push({ ...t, gy: t.e ? t.e.g.position.y : fxY, bl, rg, k, rate, t: 0, delay: 0.3 + i * 0.13, imp: false, sndAt: 0.92 - 0.25 / rate });
   });
-  pulse(HOLY.gold, 3.5, 0.5); lineSparks(player.position.clone().setY(0.2), 16, 6, 0.8, HOLY.sparks);
+  pulse(HOLY.gold, 3.5, 0.5); lineSparks(player.position.clone().setY(fxY + 0.2), 16, 6, 0.8, HOLY.sparks);
 }
 function endSM(full) {
   P.sm = 0; P.smD = 0; P.drawT = DRAW_HOLD;
@@ -3245,16 +3641,16 @@ function endSM(full) {
 }
 function smTick(dt) { P.sm -= dt; P.inv = Math.max(P.inv, 0.15); if (P.sm <= 0) endSM(); }
 function bladeImpact(b) {
-  const pos = new THREE.Vector3(b.x, 0.3, b.z);
+  const pos = new THREE.Vector3(b.x, b.gy + 0.3, b.z);
   for (const e of [...enemies]) {
     const d = e.g.position.clone().sub(pos).setY(0), l = d.length();
     if (e === b.e) hurtEnemy(e, SM.dmg, l > 0.01 ? d.normalize() : null, 6, 's3');
     else if (l < SM.splashR * b.k + e.r) hurtEnemy(e, SM.splash, d.normalize(), 10, 's3');
   }
-  burst(pos.clone().setY(0.8), 0xfff2c0, 16, 7); lineSparks(pos.clone().setY(0.4), 36, 10, 1.2, HOLY.sparks);
-  const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 48), glowMat(HOLY.gold)); m.rotation.x = -Math.PI / 2; m.position.copy(pos).setY(0.1); scene.add(m);
+  burst(pos.clone().setY(b.gy + 0.8), 0xfff2c0, 16, 7); lineSparks(pos.clone().setY(b.gy + 0.4), 36, 10, 1.2, HOLY.sparks);
+  const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 48), glowMat(HOLY.gold)); m.rotation.x = -Math.PI / 2; m.position.copy(pos).setY(b.gy + 0.1); scene.add(m);
   pulses.push({ m, t: 0.45, dur: 0.45, max: 3.4 * b.k });
-  const pm = new THREE.Mesh(bgeo.pillar, glowMat(0xffe48a, 0.9)); pm.position.set(b.x, 6, b.z); scene.add(pm); pm.scale.set(b.k, 1, b.k); pillars.push({ m: pm, t: 0.4, dur: 0.4, s: b.k }); // pilar cahaya (melebar sesuai ukuran musuh)
+  const pm = new THREE.Mesh(bgeo.pillar, glowMat(0xffe48a, 0.9)); pm.position.set(b.x, b.gy + 6, b.z); scene.add(pm); pm.scale.set(b.k, 1, b.k); pillars.push({ m: pm, t: 0.4, dur: 0.4, s: b.k }); // pilar cahaya (melebar sesuai ukuran musuh)
   shake = Math.max(shake, 0.45 + 0.1 * (b.k - 1));
 }
 function bladesTick(dt) {
@@ -3264,18 +3660,18 @@ function bladesTick(dt) {
     if (t < 0) continue;
     bl.g.visible = rg.g.visible = true;
     if (!b.snd && t >= b.sndAt) { b.snd = true; audio.sfx('swordbreak', { vol: 0.85, rate: b.rate }); } // puncak suara (0,25 dtk) tepat saat pedang menghantam (t=0,92)
-    if (t < 0.8 && b.e) { if (enemies.includes(b.e)) { b.x = b.e.g.position.x; b.z = b.e.g.position.z; } else b.e = null; } // ikuti monster sampai pedang menukik
+    if (t < 0.8 && b.e) { if (enemies.includes(b.e)) { b.x = b.e.g.position.x; b.z = b.e.g.position.z; b.gy = b.e.g.position.y; } else b.e = null; } // ikuti monster sampai pedang menukik
     let a = 1, y = H, ch = 0, rs = 1, sc = 1;
     if (t < 0.4) { const k = t / 0.4; a = k; rs = ease(k); sc = 0.7 + 0.3 * k; y = H + 0.8 * (1 - k); }
     else if (t < 0.8) { ch = (t - 0.4) / 0.4; y = H + Math.sin(t * 14) * 0.08; }
     else if (t < 0.92) { const k = (t - 0.8) / 0.12; y = H + (0.45 - H) * k * k; ch = 1; } // menukik cepat
     else { y = 0.45; ch = 1; if (!b.imp) { b.imp = true; bladeImpact(b); } if (t > 1.4) a = Math.max(0, 1 - (t - 1.4) / 0.25); }
-    bl.g.position.set(b.x, y, b.z); bl.g.scale.setScalar(sc * K);
+    bl.g.position.set(b.x, b.gy + y, b.z); bl.g.scale.setScalar(sc * K);
     if (t < 0.8) bl.g.rotation.y = t * (2 + ch * 6);
     bl.steel.opacity = bl.gold.opacity = a; bl.steel.emissiveIntensity = 1 + 2 * ch;
     bl.halo.material.opacity = a * (0.4 + 0.5 * ch) * (0.88 + 0.12 * Math.sin(t * 24)); bl.halo.scale.setScalar((6 + 3 * ch) * (0.95 + 0.05 * Math.sin(t * 17)));
     bl.aura.opacity = a * (0.2 + 0.6 * ch); bl.aura.opacity *= t > 0.92 ? Math.max(0, 1 - (t - 0.92) * 2.5) : 1;
-    rg.g.position.set(b.x, 0.07, b.z); rg.g.scale.setScalar((b.r + 0.9) * 1.25 * rs); rg.g.rotation.z = t * 2.5;
+    rg.g.position.set(b.x, b.gy + 0.07, b.z); rg.g.scale.setScalar((b.r + 0.9) * 1.25 * rs); rg.g.rotation.z = t * 2.5;
     rg.m.opacity = 0.9 * a * (0.6 + 0.4 * ch);
     if (t > 1.65) { scene.remove(bl.g, rg.g); blades.splice(blades.indexOf(b), 1); }
   }
@@ -3326,9 +3722,9 @@ function dkSlashWave(off = 0) {   // slash ke depan seperti aura penguatan skill
     red.scale.set(1.1, 1.1, 1); red.renderOrder = 1; blk.renderOrder = 2; piv.add(red, blk); piv.rotation.z = -Math.PI / 2 + span / 2;
     const hold = new THREE.Group(); hold.position.z = h; hold.rotation.x = tilt; hold.add(piv); pl.add(hold);
   });
-  wg.position.copy(player.position).addScaledVector(f, 0.6).setY(0.95); wg.rotation.y = a; wg.scale.set(dkFlip * S, S, S); scene.add(wg);
+  wg.position.copy(player.position).addScaledVector(f, 0.6).setY(fxY + 0.95); wg.rotation.y = a; wg.scale.set(dkFlip * S, S, S); scene.add(wg);
   waves.push({ g: wg, v: f.clone().multiplyScalar(DK.pow > 0 ? 20 : 15), life: DK.pow > 0 ? 0.8 : 0.55, hit: new Set(), dmg: DK.pow > 0 ? 30 : 22, mat, mat2, rad: 1.3 * S });
-  lineSparks(player.position.clone().addScaledVector(f, 1.5).setY(1), 10, 7, 1, DKP.sparks);
+  lineSparks(player.position.clone().addScaledVector(f, 1.5).setY(fxY + 1), 10, 7, 1, DKP.sparks);
 }
 function dkTint(on) {   // warna efek serangan dasar: ungu -> merah
   for (const m of [slash.material, dMat]) m.color.setHex(on ? 0xff1020 : 0xffffff);
@@ -3358,13 +3754,13 @@ function dkPowEnd() {
 }
 function dkPowFx(dt) {   // aura merah berputar memancar ke seluruh arena
   const pp = player.position, env = Math.min(1, DK.pT / 0.35, DK.pow / 0.6);
-  DK.sp.visible = true; DK.sp.position.set(pp.x, 0.05, pp.z);
+  DK.sp.visible = true; DK.sp.position.set(pp.x, fxY + 0.05, pp.z);
   DK.sp.children.forEach((c, i) => {
     const ph = (DK.pT * 0.55 + i / DK.sp.children.length) % 1, s = 0.35 + ph * (DKB.reach / 8.5);   // tiap pita melebar dari Luis sampai tepi arena
     c.scale.set(s, Math.min(s, 1.5), s); c.rotation.y += dt * c.userData.sp * 5; c.material.opacity = env * 0.9 * Math.sin(Math.PI * ph);
   });
   if ((DK.rt -= dt) <= 0) {   // cincin kejut merah menyapu arena
-    DK.rt = 0.32; ptRing(pp.clone().setY(0.08), null, DKB.reach, 0.9, { c: DKP.ring }); ptRing(pp.clone().setY(0.1), null, DKB.reach * 0.7, 0.8, { c: DKP.ring2, delay: 0.1 });
+    DK.rt = 0.32; ptRing(pp.clone().setY(fxY + 0.08), null, DKB.reach, 0.9, { c: DKP.ring }); ptRing(pp.clone().setY(fxY + 0.1), null, DKB.reach * 0.7, 0.8, { c: DKP.ring2, delay: 0.1 });
     shake = Math.max(shake, 0.08);
   }
   for (let i = 0; i < 2; i++) { const a = rnd(0, 6.283), r = rnd(2, DKB.reach * 0.9); lineSparks(new THREE.Vector3(pp.x + Math.cos(a) * r, 0.1, pp.z + Math.sin(a) * r), 2, 5, 3, DKP.sparks); }
@@ -3400,7 +3796,7 @@ function toggleDark() {
   if (QT.phase || IT.open || !canFight() || P.air || P.roll > 0 || P.vs > 0 || P.sl > 0 || P.sm > 0 || P.pt > 0 || P.ex > 0 || (P.atk > 0 && P.cross) || DK.cd > 0) return;
   DK.cd = 0.8; DK.on = !DK.on; dkPowEnd(); exTheme(DK.on);
   const pp = player.position;
-  pulse(DK.on ? DKP.gold : HOLY.gold, 5, 0.6); lineSparks(pp.clone().setY(0.2), 30, 8, 1, DK.on ? DKP.sparks : HOLY.sparks); shake = Math.max(shake, 0.35); EX.fl = Math.max(EX.fl, 0.35);
+  pulse(DK.on ? DKP.gold : HOLY.gold, 5, 0.6); lineSparks(pp.clone().setY(fxY + 0.2), 30, 8, 1, DK.on ? DKP.sparks : HOLY.sparks); shake = Math.max(shake, 0.35); EX.fl = Math.max(EX.fl, 0.35);
   audio.sfx('thud', { vol: 0.9, rate: DK.on ? 0.45 : 0.9 });
   toast(DK.on ? '🌑 DARK MODE — skill 3 jadi Dark Blades, skill 6 jadi Dark Excalibur (X untuk kembali)' : '☀️ Dark Mode nonaktif', 2600);
   if (skBtn.s3) { skBtn.s3.title = DK.on ? 'Dark Blades (3)' : 'Summon Blade (3)'; skBtn.s3.style.filter = DK.on ? 'hue-rotate(-60deg) saturate(1.6) brightness(.75)' : ''; }
@@ -3421,9 +3817,9 @@ function startDK3() {   // Skill 3 (Dark Mode): 5 lingkaran sihir di belakang Lu
   const lat = [-4.2, -2.1, 0, 2.1, 4.2], hh = [2.6, 3.7, 4.4, 3.7, 2.6];   // sayap lingkaran sihir di belakang pemain
   for (let i = 0; i < DK3.n; i++) {
     const e = tg.length ? tg[i % tg.length] : null;   // < 5 musuh: pedang dibagi rata (bisa lebih dari 1 pedang ke musuh yang sama)
-    const c = pp.clone().addScaledVector(f, -0.6).addScaledVector(sd, lat[i]); c.y = hh[i];
+    const c = pp.clone().addScaledVector(f, -0.6).addScaledVector(sd, lat[i]); c.y = fxY + hh[i];
     const fix = e ? e.g.position.clone() : pp.clone().addScaledVector(f, 14).addScaledVector(sd, lat[i] * 1.4);
-    fix.y = e ? (e.dragon || e.golem ? 2.2 : 1) : 0.3;
+    fix.y = e ? e.g.position.y + (e.dragon || e.golem ? 2.2 : 1) : fxY + 0.3;
     const og = new THREE.Group(), rg = makeAirCircle(DKP); og.add(rg.g); og.visible = false; og.position.copy(c); scene.add(og);
     const bl = makeBigBlade(DKP); bl.g.scale.setScalar(DK3.scale); bl.g.visible = false; scene.add(bl.g);
     const ret = new THREE.Group(), rm = glowMat(DKP.gold, 0);
@@ -3432,19 +3828,19 @@ function startDK3() {   // Skill 3 (Dark Mode): 5 lingkaran sihir di belakang Lu
     const line = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0xff2030, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false })); line.frustumCulled = false; line.visible = false; scene.add(line);
     DK.sw.push({ i, e, er: e ? e.r : 0.9, c, og, rg, bl, ret, line, fix, d: f.clone(), want: new THREE.Vector3(), start: new THREE.Vector3(), end: new THREE.Vector3(), t: 0, ca: DK3.ca + i * DK3.step, ea: DK3.ca + i * DK3.step + 0.22, fl: false, imp: false });
   }
-  pulse(DKP.gold, 3.5, 0.5); lineSparks(pp.clone().setY(0.2), 16, 6, 0.8, DKP.sparks);
+  pulse(DKP.gold, 3.5, 0.5); lineSparks(pp.clone().setY(fxY + 0.2), 16, 6, 0.8, DKP.sparks);
 }
 function dkImpact(b, p) {
-  const pos = new THREE.Vector3(p.x, 0.3, p.z);
+  const pos = new THREE.Vector3(p.x, fxY + 0.3, p.z);
   for (const e of [...enemies]) {
     const d = e.g.position.clone().sub(pos).setY(0), l = d.length(), dir = l > 0.01 ? d.normalize() : null;
     if (e === b.e) hurtEnemy(e, DK3.dmg, dir, 6, 'd3');
     else if (l < DK3.splashR + e.r) hurtEnemy(e, DK3.splash, dir, 10, 'd3');
   }
   if (!DK.snd) { DK.snd = true; audio.sfx('swordbreak', { vol: 0.9, rate: 0.8 }); }
-  burst(pos.clone().setY(0.9), DKP.burst, 14, 7); burst(pos.clone().setY(0.7), 0x1a0008, 12, 6); lineSparks(pos.clone().setY(0.4), 30, 10, 1.2, DKP.sparks);
-  const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 48), glowMat(DKP.gold)); m.rotation.x = -Math.PI / 2; m.position.copy(pos).setY(0.1); scene.add(m); pulses.push({ m, t: 0.45, dur: 0.45, max: 3.4 });
-  const m2 = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.9, 48), new THREE.MeshBasicMaterial({ color: 0x08000a, transparent: true, side: THREE.DoubleSide, depthWrite: false })); m2.rotation.x = -Math.PI / 2; m2.position.copy(pos).setY(0.12); scene.add(m2); pulses.push({ m: m2, t: 0.5, dur: 0.5, max: 3.0 });
+  burst(pos.clone().setY(fxY + 0.9), DKP.burst, 14, 7); burst(pos.clone().setY(fxY + 0.7), 0x1a0008, 12, 6); lineSparks(pos.clone().setY(fxY + 0.4), 30, 10, 1.2, DKP.sparks);
+  const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 48), glowMat(DKP.gold)); m.rotation.x = -Math.PI / 2; m.position.copy(pos).setY(fxY + 0.1); scene.add(m); pulses.push({ m, t: 0.45, dur: 0.45, max: 3.4 });
+  const m2 = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.9, 48), new THREE.MeshBasicMaterial({ color: 0x08000a, transparent: true, side: THREE.DoubleSide, depthWrite: false })); m2.rotation.x = -Math.PI / 2; m2.position.copy(pos).setY(fxY + 0.12); scene.add(m2); pulses.push({ m: m2, t: 0.5, dur: 0.5, max: 3.0 });
   const pr = new THREE.Mesh(bgeo.pillar, glowMat(DKP.gold, 0.9)), pk = new THREE.Mesh(bgeo.pillar, new THREE.MeshBasicMaterial({ color: 0x07000a, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
   pr.position.set(p.x, 6, p.z); pk.position.set(p.x, 6, p.z); pk.scale.set(0.7, 1, 0.7); scene.add(pr, pk); pillars.push({ m: pr, t: 0.4, dur: 0.4, s: 1 }, { m: pk, t: 0.4, dur: 0.4, s: 0.7 });   // pilar merah + inti hitam
   shake = Math.max(shake, 0.3);
@@ -3475,7 +3871,7 @@ function dkTick(dt) {
   const E = k => 1 - Math.pow(1 - clamp01(k), 3), L = 3.5 * DK3.scale;
   for (const b of [...DK.sw]) {
     b.t += dt; const t = b.t, bl = b.bl, A = _dkA;
-    if (b.e && enemies.includes(b.e) && !b.e.dying) { b.fix.copy(b.e.g.position); b.fix.y = b.e.dragon || b.e.golem ? 2.2 : 1; }   // ikuti target sampai diluncurkan
+    if (b.e && enemies.includes(b.e) && !b.e.dying) { b.fix.copy(b.e.g.position); b.fix.y = b.e.g.position.y + (b.e.dragon || b.e.golem ? 2.2 : 1); }   // ikuti target sampai diluncurkan
     A.copy(b.fix);
     const ca = clamp01((t - b.ca) / 0.3), ek = E((t - b.ea) / DK3.emerge), fk = (t - DK3.launch) / DK3.fly, lkT = DK3.lock + b.i * 0.03;
     if (!b.fl) { b.want.copy(A).sub(b.c).normalize(); b.d.lerp(b.want, 1 - Math.exp(-dt * 9)).normalize(); }
@@ -3505,7 +3901,7 @@ function dkTick(dt) {
     b.ret.visible = b.line.visible = lockVis;
     if (lockVis) {
       const q = clamp01((t - lkT) / 0.3);
-      b.ret.position.set(A.x, 0.09, A.z); b.ret.rotation.z = t * 3; b.ret.scale.setScalar((b.er + 0.9) * (1 + 1.2 * (1 - E(q))));
+      b.ret.position.set(A.x, fxY + 0.09, A.z); b.ret.rotation.z = t * 3; b.ret.scale.setScalar((b.er + 0.9) * (1 + 1.2 * (1 - E(q))));
       b.ret.material.opacity = 0.9 * q * (0.8 + 0.2 * Math.sin(t * 30));
       const ar = b.line.geometry.attributes.position.array; ar[0] = tip.x; ar[1] = tip.y; ar[2] = tip.z; ar[3] = A.x; ar[4] = A.y; ar[5] = A.z; b.line.geometry.attributes.position.needsUpdate = true;
       b.line.material.opacity = 0.75 * q * (0.7 + 0.3 * Math.sin(t * 40));
@@ -3564,13 +3960,13 @@ function startBF() {
   Object.assign(BF, { on: true, t: BF.dur, hp: BF.max, age: 0, flash: 0 });
   bfG.visible = true; shW.hidden = false;
   pulse(0xa23cff, 4.2, 0.6); setTimeout(() => pulse(0xd2a8ff, 5.5, 0.5), 250);
-  lineSparks(player.position.clone().setY(0.2), 34, 8, 1.2);
+  lineSparks(player.position.clone().setY(fxY + 0.2), 34, 8, 1.2);
   const pm = new THREE.Mesh(bgeo.pillar, glowMat(0xf3e6ff, 0.8)); pm.position.set(player.position.x, 6, player.position.z); pm.scale.set(2.4, 1, 2.4); scene.add(pm); pillars.push({ m: pm, t: 0.5, dur: 0.5 });
   shake = Math.max(shake, 0.3); toast('Aura Penguatan & Perlindungan aktif! Serangan +30%, slash tambahan tiap serangan dasar', 3000);
 }
 function endBF() { BF.on = false; bfG.visible = false; shW.hidden = true; }
 function breakBF(msg) { // perisai pecah / waktu habis
-  lineSparks(player.position.clone().setY(1.2), 44, 10, 1.1); burst(player.position.clone().setY(1.2), 0xd2a8ff, 20, 7);
+  lineSparks(player.position.clone().setY(fxY + 1.2), 44, 10, 1.1); burst(player.position.clone().setY(fxY + 1.2), 0xd2a8ff, 20, 7);
   pulse(0xb35cff, 5, 0.4); shake = Math.max(shake, 0.3); endBF(); toast(msg || 'Aura pelindung berakhir', 1800);
 }
 function bfSlash() { // slash tambahan: sabit ungu melesat ke depan, bergantian kiri-kanan
@@ -3581,9 +3977,9 @@ function bfSlash() { // slash tambahan: sabit ungu melesat ke depan, bergantian 
     const piv = new THREE.Group(); piv.add(new THREE.Mesh(ribbonGeo(rc, span, W), mat)); piv.rotation.z = -Math.PI / 2 + span / 2;
     const hold = new THREE.Group(); hold.position.z = h; hold.rotation.x = tilt; hold.add(piv); pl.add(hold);
   });
-  wg.position.copy(player.position).addScaledVector(f, 0.6).setY(0.95); wg.rotation.y = P.face; wg.scale.x = BF.flip; scene.add(wg);
+  wg.position.copy(player.position).addScaledVector(f, 0.6).setY(fxY + 0.95); wg.rotation.y = P.face; wg.scale.x = BF.flip; scene.add(wg);
   waves.push({ g: wg, v: f.clone().multiplyScalar(15), life: 0.55, hit: new Set(), dmg: 20, mat });
-  lineSparks(player.position.clone().addScaledVector(f, 1.5).setY(1), 10, 7);
+  lineSparks(player.position.clone().addScaledVector(f, 1.5).setY(fxY + 1), 10, 7);
 }
 function bfTick(dt) {
   if (!BF.on) return;
@@ -3740,7 +4136,7 @@ function ptAcquire() { // target = musuh terdekat, yang searah hadap pemain dipr
 }
 function ptLockOn(e) { // reticle mulai mengunci musuh e
   PT.tgt = e; PT.rt = 0; if (!e) return;
-  PT.rbase = Math.min(7, Math.max(2.6, 2 + e.r * 1.6)); PT.rpos.copy(e.g.position).setY(e.dragon || e.golem ? 3 : 1.4);
+  PT.rbase = Math.min(7, Math.max(2.6, 2 + e.r * 1.6)); PT.rpos.copy(e.g.position).setY(e.g.position.y + (e.dragon || e.golem ? 3 : 1.4));
 }
 function startPT(dash) { // dash = false: aktifkan skill (isi petir lalu mode Lari Petir) | dash = true: serangan dasar saat mode aktif -> terjang
   const cur = PT.tgt && enemies.includes(PT.tgt) && !PT.tgt.dying && PT.tgt.g.position.distanceTo(player.position) <= PT.range * 1.2 ? PT.tgt : null;
@@ -3750,12 +4146,12 @@ function startPT(dash) { // dash = false: aktifkan skill (isi petir lalu mode La
   Object.assign(P, { pt: 1, atk: 0, cross: false, roll: 0 });
   for (const m of [slash.material, dMat, xMat, xCore, cresMat, cresCore, speedMat]) m.opacity = 0;
   if (best) { const d = best.g.position.clone().sub(player.position); P.face = Math.atan2(d.x, d.z); }
-  pulse(0x8a2dff, 3, 0.4); lineSparks(player.position.clone().setY(0.1), dash ? 8 : 16, 5, 0.7); shake = Math.max(shake, 0.15);
+  pulse(0x8a2dff, 3, 0.4); lineSparks(player.position.clone().setY(fxY + 0.1), dash ? 8 : 16, 5, 0.7); shake = Math.max(shake, 0.15);
 }
 function ptBuffOn() { // selesai mengisi: mode Lari Petir aktif
   PT.buff = PT.buffT; PT.acq = 0; endPT();
-  pulse(0xb98cff, 5, 0.5); ptRing(player.position.clone().setY(0.1), null, 6, 0.5); ptRing(player.position.clone().setY(1), UP, 3.5, 0.5, { c: 0xffffff, delay: 0.05 });
-  lineSparks(player.position.clone().setY(0.2), 40, 10, 1.2); shake = Math.max(shake, 0.4); PT.flash = 1;
+  pulse(0xb98cff, 5, 0.5); ptRing(player.position.clone().setY(fxY + 0.1), null, 6, 0.5); ptRing(player.position.clone().setY(fxY + 1), UP, 3.5, 0.5, { c: 0xffffff, delay: 0.05 });
+  lineSparks(player.position.clone().setY(fxY + 0.2), 40, 10, 1.2); shake = Math.max(shake, 0.4); PT.flash = 1;
   try { ptSnd.run.currentTime = 0; ptSnd.run.volume = Math.min(1, audio.sfxVolume * 0.7); ptSnd.run.play().catch(() => {}); } catch (e) { /* abaikan */ }
   toast('⚡ Lari Petir aktif ' + PT.buffT + ' dtk! Lari lebih cepat, serangan dasar = terjang petir', 2800);
 }
@@ -3764,7 +4160,7 @@ function endPT() {
   P.pt = 0; PT.ph = ''; PT.hold = 0.5; P.drawT = DRAW_HOLD; ptCR.visible = ptCR2.visible = false;
 }
 function beginDash(T) { // garis terjang DIKUNCI sekarang: lurus dari pemain, menembus target, berhenti di titik terjauh
-  const S = player.position.clone().setY(0), dir = new THREE.Vector3();
+  const S = player.position.clone(), dir = new THREE.Vector3();
   let L;
   if (T) { dir.copy(T.g.position).sub(S).setY(0); const dl = dir.length(); if (dl < 1e-3) dir.copy(faceVec()); else dir.divideScalar(dl); L = Math.max(4, dl + T.r + PT.over); }
   else { dir.copy(faceVec()); L = PT.noTgt; }
@@ -3775,28 +4171,28 @@ function beginDash(T) { // garis terjang DIKUNCI sekarang: lurus dari pemain, me
   if (exploreMode && dgX) L = Math.max(0.5, dgX.dashLen(S, dir, L, PLAYER_R + 0.35));   // dungeon jelajah: boleh menembus tembok, tapi mendarat di lantai kosong & berhenti sebelum gerbang / pintu keluar
   PT.S.copy(S); PT.dir.copy(dir); PT.L = L; PT.s = 0; PT.dur = Math.min(0.6, Math.max(0.22, L / PT.speed)); PT.ph = 'dash'; PT.t = 0; P.pt = 2;
   P.face = Math.atan2(dir.x, dir.z);
-  const c0 = player.position.clone().setY(1);
+  const c0 = player.position.clone().setY(fxY + 1);
   ptRing(c0, dir, 4.5, 0.35); ptRing(c0.clone().addScaledVector(dir, 1.2), dir, 7, 0.45, { c: 0x9a6bff, delay: 0.04 });
-  pulse(0xb98cff, 4.5, 0.4); lineSparks(player.position.clone().setY(0.3), 34, 11, 0.9); ptPlay('dash'); shake = Math.max(shake, 0.5); PT.flash = 1;
-  ptLight.position.set(c0.x, 1.5, c0.z);
+  pulse(0xb98cff, 4.5, 0.4); lineSparks(player.position.clone().setY(fxY + 0.3), 34, 11, 0.9); ptPlay('dash'); shake = Math.max(shake, 0.5); PT.flash = 1;
+  ptLight.position.set(c0.x, fxY + 1.5, c0.z);
   ptCR.visible = ptCR2.visible = false;
 }
 function ptHit(e) { // kena: tebasan X sekarang, sambaran petir sebentar kemudian
   hurtEnemy(e, PT.dmg1, PT.dir.clone(), 16);
-  const c = e.g.position.clone().setY(e.dragon || e.golem ? 3 : 1.3), sc = Math.max(1, e.r * 0.9);
+  const c = e.g.position.clone().setY(e.g.position.y + (e.dragon || e.golem ? 3 : 1.3)), sc = Math.max(1, e.r * 0.9);
   ptSlashX(c, sc); ptRing(c, PT.dir, 5 + e.r * 2, 0.4, { c: 0xd9c6ff });
   lineSparks(c, 24, 10, 1.2); shake = Math.max(shake, 0.45); PT.flash = 1; ptLight.position.copy(c);
   ptEv.push({ t: PT.strikeDelay, fn: () => ptStrike(e, c) });
 }
 function ptStrike(e, c) { // sambaran petir dari langit
-  const alive = enemies.includes(e), p = (alive ? e.g.position : c).clone().setY(0), top = p.clone().add(new THREE.Vector3(rnd(-1, 1), 0, rnd(-1, 1))).setY(18);
+  const alive = enemies.includes(e), p = (alive ? e.g.position : c).clone().setY(alive ? e.g.position.y : fxY), top = p.clone().add(new THREE.Vector3(rnd(-1, 1), 0, rnd(-1, 1))).setY(p.y + 18);
   ptBolt(top, p, { seg: 14, jit: 1.1, w: 0.16, life: 0.4, fork: 0.3 });
   ptBolt(top.clone().add(new THREE.Vector3(rnd(-1, 1), 0, rnd(-1, 1))), p, { seg: 12, jit: 0.8, w: 0.07, life: 0.3, fork: 0.2 });
-  for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2 + rnd(-0.3, 0.3); ptBolt(p.clone().setY(0.08), p.clone().add(new THREE.Vector3(Math.cos(a), 0, Math.sin(a)).multiplyScalar(rnd(2.5, 5))).setY(0.08), { seg: 6, jit: 0.35, w: 0.05, life: 0.35 }); } // retakan petir di lantai
-  ptRing(p.clone().setY(0.1), null, 5.5, 0.45); ptRing(p.clone().setY(0.1), null, 3.2, 0.3, { c: 0xffffff, delay: 0.05 });
-  ptAdd((() => { const s = new THREE.Sprite(ptSprMat('glow')); s.position.copy(p).setY(1.2); s.renderOrder = 29; return s; })(), 0.35, (k, s) => { s.scale.setScalar(4 + 7 * k); s.material.opacity = 0.95 * (1 - k); });
-  lineSparks(p.clone().setY(0.4), 46, 12, 1.8); burst(p.clone().setY(0.5), 0x5a4a86, 14, 8); burst(p.clone().setY(1), 0xf3e6ff, 12, 7);
-  PT.flash = 1; ptLight.position.copy(p).setY(3); ptPlay('strike'); shake = Math.max(shake, 0.85);
+  for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2 + rnd(-0.3, 0.3); ptBolt(p.clone().setY(p.y + 0.08), gSet(p.clone().add(new THREE.Vector3(Math.cos(a), 0, Math.sin(a)).multiplyScalar(rnd(2.5, 5))), 0.08), { seg: 6, jit: 0.35, w: 0.05, life: 0.35 }); } // retakan petir di lantai
+  ptRing(p.clone().setY(p.y + 0.1), null, 5.5, 0.45); ptRing(p.clone().setY(p.y + 0.1), null, 3.2, 0.3, { c: 0xffffff, delay: 0.05 });
+  ptAdd((() => { const s = new THREE.Sprite(ptSprMat('glow')); s.position.copy(p).setY(p.y + 1.2); s.renderOrder = 29; return s; })(), 0.35, (k, s) => { s.scale.setScalar(4 + 7 * k); s.material.opacity = 0.95 * (1 - k); });
+  lineSparks(p.clone().setY(p.y + 0.4), 46, 12, 1.8); burst(p.clone().setY(p.y + 0.5), 0x5a4a86, 14, 8); burst(p.clone().setY(p.y + 1), 0xf3e6ff, 12, 7);
+  PT.flash = 1; ptLight.position.copy(p).setY(p.y + 3); ptPlay('strike'); shake = Math.max(shake, 0.85);
   if (alive) hurtEnemy(e, PT.dmg2, PT.dir.clone(), 8);
   for (const o of [...enemies]) { // musuh lain di dekat sambaran
     if (o === e || o.dying) continue;
@@ -3817,32 +4213,32 @@ function ptTick(dt) {
       const a = rnd(0, 6.283), r = 0.9 + 1.1 * (1 - u) * Math.random();
       ptBolt(new THREE.Vector3(pp.x + Math.cos(a) * r, 0.06, pp.z + Math.sin(a) * r), new THREE.Vector3(pp.x + rnd(-0.35, 0.35), rnd(0.3, 1.8), pp.z + rnd(-0.35, 0.35)), { seg: 5, jit: 0.22, w: 0.022, life: 0.14 });
     }
-    if (Math.random() < 0.5) lineSparks(pp.clone().setY(0.1), 1, 4, 1.4);
-    PT.flash = Math.max(PT.flash, 0.12 + 0.3 * u); ptLight.position.set(pp.x, 1.2, pp.z);
+    if (Math.random() < 0.5) lineSparks(pp.clone().setY(fxY + 0.1), 1, 4, 1.4);
+    PT.flash = Math.max(PT.flash, 0.12 + 0.3 * u); ptLight.position.set(pp.x, fxY + 1.2, pp.z);
     if (PT.t >= PT.chg) { if (PT.after === 'buff') ptBuffOn(); else beginDash(T); }
   } else if (PT.ph === 'dash') {
     const u = clamp01(PT.t / PT.dur), s1 = PT.L * (1 - Math.pow(1 - u, 2)), ds = s1 - PT.s; PT.s = s1; // cepat sekali di awal, melambat di ujung
     const a = pp.clone(); pp.addScaledVector(PT.dir, ds); const b = pp.clone();
-    ptBolt(a.clone().setY(1), b.clone().setY(1), { seg: 1, jit: 0, w: 0.13, life: 0.42, glow: 0x8a4dff }); // garis petir panjang di belakang
-    ptBolt(a.clone().setY(0.35), b.clone().setY(0.35), { seg: 1, jit: 0, w: 0.05, life: 0.3, glow: 0x7a3dff });
+    ptBolt(a.clone().setY(fxY + 1), b.clone().setY(fxY + 1), { seg: 1, jit: 0, w: 0.13, life: 0.42, glow: 0x8a4dff }); // garis petir panjang di belakang
+    ptBolt(a.clone().setY(fxY + 0.35), b.clone().setY(fxY + 0.35), { seg: 1, jit: 0, w: 0.05, life: 0.3, glow: 0x7a3dff });
     for (let i = 0; i < 2; i++) { // busur petir menyambar di sekeliling badan
-      const o = new THREE.Vector3(b.x + rnd(-0.6, 0.6), rnd(0.2, 1.8), b.z + rnd(-0.6, 0.6));
+      const o = new THREE.Vector3(b.x + rnd(-0.6, 0.6), fxY + rnd(0.2, 1.8), b.z + rnd(-0.6, 0.6));
       ptBolt(o, o.clone().add(new THREE.Vector3(rnd(-1.6, 1.6), rnd(-0.8, 1.2), rnd(-1.6, 1.6))).addScaledVector(PT.dir, -rnd(0.3, 2.2)), { seg: 5, jit: 0.25, w: 0.03, life: 0.18 });
     }
-    lineSparks(b.clone().setY(0.2), 3, 7, 1.0);
+    lineSparks(b.clone().setY(fxY + 0.2), 3, 7, 1.0);
     const ax = a.x, az = a.z, dx = b.x - ax, dz = b.z - az, l2 = dx * dx + dz * dz;
     for (const e of [...enemies]) { // tiap musuh yang dilewati garis terjang (diperiksa sepanjang ruas, jadi tidak tembus karena terlalu cepat)
       if (e.dying || PT.hit.has(e)) continue;
       const t = l2 > 1e-6 ? clamp01(((e.g.position.x - ax) * dx + (e.g.position.z - az) * dz) / l2) : 0;
       if (Math.hypot(e.g.position.x - (ax + dx * t), e.g.position.z - (az + dz * t)) < e.r + PT.hitR) { PT.hit.add(e); ptHit(e); }
     }
-    PT.flash = Math.max(PT.flash, 0.5); ptLight.position.set(b.x, 1.5, b.z);
+    PT.flash = Math.max(PT.flash, 0.5); ptLight.position.set(b.x, fxY + 1.5, b.z);
     if (u >= 1) { // mendarat di titik terjauh
-      PT.ph = 'rec'; PT.t = 0; P.pt = 3; pulse(0xa23cff, 3.5, 0.4); lineSparks(pp.clone().setY(0.2), 30, 9, 0.9); shake = Math.max(shake, 0.25);
+      PT.ph = 'rec'; PT.t = 0; P.pt = 3; pulse(0xa23cff, 3.5, 0.4); lineSparks(pp.clone().setY(fxY + 0.2), 30, 9, 0.9); shake = Math.max(shake, 0.25);
     }
   } else {
     if (T) { const d = T.g.position.clone().sub(pp); P.face = Math.atan2(d.x, d.z); } // setelah mendarat: berbalik menghadap musuh
-    if (PT.t < 0.25 && Math.random() < 0.5) lineSparks(pp.clone().setY(0.15), 1, 5, 1.2);
+    if (PT.t < 0.25 && Math.random() < 0.5) lineSparks(pp.clone().setY(fxY + 0.15), 1, 5, 1.2);
     if (PT.t >= PT.rec) endPT();
   }
 }
@@ -3893,7 +4289,7 @@ function ptFxTick(dt) {
   else { cam.fov = 50 + 14 * PT.fk; cam.updateProjectionMatrix(); }
   if (P.pt === 1) { // cincin petir di lantai saat mengisi
     const u = clamp01(PT.t / PT.chg), e = 1 - Math.pow(1 - u, 2);
-    ptCR.visible = ptCR2.visible = true; ptCR.position.set(player.position.x, 0.06, player.position.z); ptCR2.position.copy(ptCR.position);
+    ptCR.visible = ptCR2.visible = true; ptCR.position.set(player.position.x, fxY + 0.06, player.position.z); ptCR2.position.copy(ptCR.position);
     ptCR.scale.setScalar(0.4 + 1.9 * e); ptCR2.scale.setScalar(0.25 + 1.2 * e); ptCR.rotation.z += dt * 3; ptCR2.rotation.z -= dt * 5;
     ptCR.material.opacity = 0.4 + 0.5 * u; ptCR2.material.opacity = 0.3 + 0.5 * u;
   }
@@ -3904,20 +4300,20 @@ function ptFxTick(dt) {
     if (PT.buff <= 0) { PT.buff = 0; toast('Lari Petir berakhir', 1200); }
     if (Math.random() < (mvg ? 0.85 : 0.35)) { const o = new THREE.Vector3(pp.x + rnd(-0.5, 0.5), rnd(0.1, 1.8), pp.z + rnd(-0.5, 0.5)); ptBolt(o, o.clone().add(new THREE.Vector3(rnd(-1.1, 1.1), rnd(-0.7, 0.7), rnd(-1.1, 1.1))), { seg: 4, jit: 0.2, w: 0.025, life: 0.15 }); }
     if (mvg) {
-      lineSparks(pp.clone().setY(0.15), 1, 5, 1.0);
-      if (Math.random() < 0.6) { const bk = P.v.clone().normalize().multiplyScalar(-rnd(1, 2.6)); ptBolt(pp.clone().setY(0.06), pp.clone().add(bk).setY(0.06), { seg: 3, jit: 0.15, w: 0.03, life: 0.25 }); }
+      lineSparks(pp.clone().setY(fxY + 0.15), 1, 5, 1.0);
+      if (Math.random() < 0.6) { const bk = P.v.clone().normalize().multiplyScalar(-rnd(1, 2.6)); ptBolt(pp.clone().setY(fxY + 0.06), pp.clone().add(bk).setY(fxY + 0.06), { seg: 3, jit: 0.15, w: 0.03, life: 0.25 }); }
     }
     PT.flash = Math.max(PT.flash, 0.16);
     { // target mati / terlalu jauh: LANGSUNG pindah kunci ke musuh terdekat berikutnya (dicek tiap frame, juga saat sedang menerjang)
       const ok = PT.tgt && enemies.includes(PT.tgt) && !PT.tgt.dying && PT.tgt.g.position.distanceTo(pp) <= PT.range * 1.2;
       if (!ok) ptLockOn(ptAcquire());
     }
-    ptLight.position.set(pp.x, 1.3, pp.z);
+    ptLight.position.set(pp.x, fxY + 1.3, pp.z);
   }
   // reticle kunci target: menyusut + berputar saat mengunci, lalu berdenyut; memudar bila target mati / skill selesai
   if (P.pt <= 0 && PT.hold > 0) PT.hold -= dt;
   const T = PT.tgt && enemies.includes(PT.tgt) && !PT.tgt.dying ? PT.tgt : null, live = !!T && (P.pt > 0 || PT.hold > 0 || PT.buff > 0);
-  if (live) { PT.rt += dt; PT.ra = Math.min(1, PT.ra + dt * 8); PT.rpos.copy(T.g.position).setY(T.dragon || T.golem ? 3 : 1.4); } else PT.ra = Math.max(0, PT.ra - dt * 5);
+  if (live) { PT.rt += dt; PT.ra = Math.min(1, PT.ra + dt * 8); PT.rpos.copy(T.g.position).setY(T.g.position.y + (T.dragon || T.golem ? 3 : 1.4)); } else PT.ra = Math.max(0, PT.ra - dt * 5);
   ptRet.visible = PT.ra > 0.01;
   if (ptRet.visible) {
     const kk = clamp01(PT.rt / 0.25), inv = (1 - kk) * (1 - kk);
@@ -4051,7 +4447,7 @@ document.body.appendChild(exFlash);
 const exRocks = [], exRockG = new THREE.DodecahedronGeometry(0.25, 0), exRockM = new THREE.MeshStandardMaterial({ color: 0x15151c, roughness: 0.8, emissive: 0x6a4300, emissiveIntensity: 0.35 });
 function exRock(pos, mode) {
   const m = new THREE.Mesh(exRockG, exRockM); m.scale.set(rnd(0.6, 1.8), rnd(0.5, 1.4), rnd(0.6, 1.8)); m.position.copy(pos); m.rotation.set(rnd(0, 6), rnd(0, 6), rnd(0, 6)); scene.add(m);
-  exRocks.push({ m, mode, h: rnd(0.8, 3.6), v: new THREE.Vector3(), w: new THREE.Vector3(rnd(-4, 4), rnd(-4, 4), rnd(-4, 4)), life: 0, max: mode === 'float' ? 30 : 2.2 });
+  exRocks.push({ m, mode, fy: fxY, h: fxY + rnd(0.8, 3.6), v: new THREE.Vector3(), w: new THREE.Vector3(rnd(-4, 4), rnd(-4, 4), rnd(-4, 4)), life: 0, max: mode === 'float' ? 30 : 2.2 });
   if (exRocks.length > 70) { const o = exRocks.shift(); scene.remove(o.m); }
 }
 function exGlow(p, s0, s1, dur, op = 0.95) { // kilatan cahaya emas yang mengembang lalu memudar
@@ -4199,7 +4595,7 @@ function startEX() {
   EX.hit.clear(); EX.fused = false; EX.clash = false; EX.vis = true; EX.cr = 0; exSt.clear(); exCapture(); exGo(1);
   Object.assign(P, { atk: 0, cross: false, roll: 0 });
   for (const m of [slash.material, dMat, xMat, xCore, cresMat, cresCore, speedMat]) m.opacity = 0;
-  audio.sfx('choir', { delay: 0.2 }); pulse(CP.gold, 4, 0.6); lineSparks(player.position.clone().setY(0.2), 24, 7, 1, CP.sparks); toast(DK.on ? '🌑 DARK EXCALIBUR' : '✨ EXCALIBUR', 1800);
+  audio.sfx('choir', { delay: 0.2 }); pulse(CP.gold, 4, 0.6); lineSparks(player.position.clone().setY(fxY + 0.2), 24, 7, 1, CP.sparks); toast(DK.on ? '🌑 DARK EXCALIBUR' : '✨ EXCALIBUR', 1800);
 }
 function endEX() {
   if (!P.ex && !EX.vis) return;
@@ -4216,17 +4612,17 @@ function beginRelease() { // tahap 3
   exGo(3); const pp = player.position, tip = exTip(_exT).clone();
   EX.fl = 0.85; shake = Math.max(shake, 1);
   audio.sfx('thud', { vol: 1, rate: 0.5 });
-  ptRing(pp.clone().setY(0.08), null, 32, 1.0, { c: CP.ring }); ptRing(pp.clone().setY(0.1), null, 20, 0.8, { c: CP.ring2, delay: 0.08 }); // gelombang kejut cahaya menyapu arena
+  ptRing(pp.clone().setY(fxY + 0.08), null, 32, 1.0, { c: CP.ring }); ptRing(pp.clone().setY(fxY + 0.1), null, 20, 0.8, { c: CP.ring2, delay: 0.08 }); // gelombang kejut cahaya menyapu arena
   ptRing(tip, faceVec(), 9, 0.5, { c: CP.ring3 });
   lineSparks(tip, 60, 16, 1.5, CP.sparks); exGlow(tip, 3, 20, 0.5); pulse(CP.gold, 9, 0.6);
 }
 function beginImpact() { // tahap 4: sinar dilepas
-  exGo(4); const pp = player.position; EX.dir.copy(faceVec()); exTip(EX.org); EX.org.y = Math.max(EX.org.y, 0.9); EX.tickT = 0; EX.hit.clear();
+  exGo(4); const pp = player.position; EX.dir.copy(faceVec()); exTip(EX.org); EX.org.y = Math.max(EX.org.y, fxY + 0.9); EX.tickT = 0; EX.hit.clear();
   EX.fl = 0.6; shake = Math.max(shake, 1.2); audio.sfx('thud', { vol: 1, rate: 0.35 });
   const o = EX.org, d = EX.dir, sd = new THREE.Vector3(d.z, 0, -d.x);
   [0, 3, 7, 12].forEach((k, i) => ptRing(o.clone().addScaledVector(d, k), d, 8 + k * 0.3, 0.6, { c: CP.ring, delay: i * 0.08 })); // cincin kejut sepanjang sinar
   for (let i = 0; i < 10; i++) { // retakan petir emas di lantai
-    const a = o.clone().setY(0.08).addScaledVector(d, rnd(1, 10)), b = a.clone().addScaledVector(d, rnd(3, 20)).addScaledVector(sd, rnd(-5, 5)).setY(0.08);
+    const a = gSet(o.clone().addScaledVector(d, rnd(1, 10)), 0.08), b = gSet(a.clone().addScaledVector(d, rnd(3, 20)).addScaledVector(sd, rnd(-5, 5)), 0.08);
     ptBolt(a, b, { seg: 8, jit: 0.5, w: 0.06, life: 0.7, ...exGold });
   }
   lineSparks(o, 70, 18, 1.3, CP.sparks); exGlow(o, 4, 26, 0.6);
@@ -4234,10 +4630,10 @@ function beginImpact() { // tahap 4: sinar dilepas
     const v = r.m.position.clone().sub(pp).setY(0); if (v.lengthSq() < 0.01) v.set(rnd(-1, 1), 0, rnd(-1, 1));
     r.mode = 'blast'; r.life = 0; r.max = 2.2; r.v.copy(v.normalize().multiplyScalar(rnd(10, 20))); r.v.y = rnd(5, 10);
   }
-  for (let i = 0; i < 12; i++) { const r = new THREE.Vector3(rnd(-2, 2), 0.2, rnd(-2, 2)).add(o).setY(0.2); exRock(r, 'blast'); const q = exRocks[exRocks.length - 1]; q.v.set(rnd(-14, 14), rnd(6, 12), rnd(-14, 14)).addScaledVector(d, rnd(0, 12)); }
+  for (let i = 0; i < 12; i++) { const r = new THREE.Vector3(rnd(-2, 2), 0.2, rnd(-2, 2)).add(o).setY(fxY + 0.2); exRock(r, 'blast'); const q = exRocks[exRocks.length - 1]; q.v.set(rnd(-14, 14), rnd(6, 12), rnd(-14, 14)).addScaledVector(d, rnd(0, 12)); }
 }
 function exHitFx(e, first) {
-  const c = e.g.position.clone().setY(e.dragon || e.golem ? 3 : 1.3);
+  const c = e.g.position.clone().setY(e.g.position.y + (e.dragon || e.golem ? 3 : 1.3));
   lineSparks(c, first ? 40 : 12, 12, 1.5, CP.sparks); burst(c, CP.burst, first ? 16 : 6, 8);
   if (first) { exGlow(c, 2, 12, 0.45); ptRing(c, EX.dir, 7 + e.r * 2, 0.45, { c: CP.ring3 }); }
 }
@@ -4261,11 +4657,11 @@ function exTick(dt) {
     }
     if (EX.t >= EX.fuse) {
       exGo(2); EX.cr = 0; audio.sfx('choir');
-      for (let i = 0; i < 16; i++) { const a = rnd(0, 6.283), r = rnd(2.5, 8); exRock(new THREE.Vector3(pp.x + Math.cos(a) * r, 0.1, pp.z + Math.sin(a) * r), 'float'); }
+      for (let i = 0; i < 16; i++) { const a = rnd(0, 6.283), r = rnd(2.5, 8); exRock(new THREE.Vector3(pp.x + Math.cos(a) * r, fxY + 0.1, pp.z + Math.sin(a) * r), 'float'); }
     }
   } else if (ph === 2) {
     const u = EX.t / EX.charge; shake = Math.max(shake, 0.08 + 0.3 * u);
-    if ((EX.cr -= dt) <= 0) { EX.cr = 0.38 - 0.18 * u; ptRing(pp.clone().setY(0.08), null, 6 + 3 * u, 0.7, { c: CP.ring }); } // denyut cincin di lantai
+    if ((EX.cr -= dt) <= 0) { EX.cr = 0.38 - 0.18 * u; ptRing(pp.clone().setY(fxY + 0.08), null, 6 + 3 * u, 0.7, { c: CP.ring }); } // denyut cincin di lantai
     const a = rnd(0, 6.283), r = rnd(1, 5); lineSparks(new THREE.Vector3(pp.x + Math.cos(a) * r, 0.1, pp.z + Math.sin(a) * r), 3, 4, 3, CP.sparks); // percikan naik
     if (Math.random() < 0.25 + 0.4 * u) { const tip = exTip(_exT); ptBolt(tip, tip.clone().add(new THREE.Vector3(rnd(-3, 3), rnd(-2, 2), rnd(-3, 3))), { seg: 6, jit: 0.3, w: 0.03, life: 0.2, ...exGold }); }
     if (EX.t >= EX.charge) beginRelease();
@@ -4276,7 +4672,7 @@ function exTick(dt) {
     const u = EX.t / EX.imp; shake = Math.max(shake, 0.8 * (1 - u * 0.5));
     pp.addScaledVector(EX.dir, -3 * (1 - u) * dt); // hentakan ke belakang
     const o = EX.org, d = EX.dir, sd = new THREE.Vector3(d.z, 0, -d.x);
-    exTip(o); o.y = Math.max(o.y, 0.9);   // ujung pedang menancap di lantai: sinar tetap keluar setinggi 0,9
+    exTip(o); o.y = Math.max(o.y, fxY + 0.9);   // ujung pedang menancap di lantai: sinar tetap keluar setinggi 0,9
     if ((EX.tickT -= dt) <= 0) { // damage berulang ke semua musuh di lintasan sinar
       EX.tickT = EX.tick;
       for (const e of [...enemies]) {
@@ -4287,7 +4683,7 @@ function exTick(dt) {
         }
       }
     }
-    for (let i = 0; i < 3; i++) lineSparks(o.clone().addScaledVector(d, rnd(1, 40)).addScaledVector(sd, rnd(-2, 2)).setY(rnd(0.2, 2.5)), 2, 9, 1.5, CP.sparks);
+    for (let i = 0; i < 3; i++) lineSparks(gSet(o.clone().addScaledVector(d, rnd(1, 40)).addScaledVector(sd, rnd(-2, 2)), rnd(0.2, 2.5)), 2, 9, 1.5, CP.sparks);
     if (Math.random() < 0.3) { const p = o.clone().addScaledVector(d, rnd(2, 30)); ptBolt(p, p.clone().add(new THREE.Vector3(rnd(-6, 6), rnd(-1, 4), rnd(-6, 6))), { seg: 7, jit: 0.4, w: 0.05, life: 0.25, ...exGold }); }
     if (EX.t >= EX.imp) { exGo(5); if (DK.on) dkPowStart(); }
   } else if (ph === 5) {
@@ -4323,7 +4719,7 @@ function exFxTick(dt) {
     if (r.mode === 'float') { m.position.y += (r.h + Math.sin(r.life * 2 + r.h) * 0.25 - m.position.y) * Math.min(1, dt * 1.5); m.rotation.x += r.w.x * 0.15 * dt; m.rotation.y += r.w.y * 0.15 * dt; }
     else {
       r.v.y -= 18 * dt; m.position.addScaledVector(r.v, dt); m.rotation.x += r.w.x * dt; m.rotation.y += r.w.y * dt; m.rotation.z += r.w.z * dt;
-      if (m.position.y < 0.15) { m.position.y = 0.15; r.v.y = Math.abs(r.v.y) * 0.3; r.v.x *= 0.6; r.v.z *= 0.6; }
+      const rf = gAt(m.position.x, m.position.z, r.fy); if (m.position.y < rf + 0.15) { m.position.y = rf + 0.15; r.v.y = Math.abs(r.v.y) * 0.3; r.v.x *= 0.6; r.v.z *= 0.6; }
       if (r.life > r.max - 0.4) m.scale.multiplyScalar(Math.max(0, 1 - dt * 4));
       if (r.life >= r.max) { scene.remove(m); exRocks.splice(exRocks.indexOf(r), 1); }
     }
@@ -4352,13 +4748,13 @@ function exFxTick(dt) {
   const co = ph === 1 ? 0.7 * u1 : ph === 2 ? 0.7 + 0.3 * u2 : ph === 3 ? 1 : ph === 4 ? 1 - 0.6 * u4 : 0.4 * (1 - u5);
   exC1.g.visible = exC2.g.visible = co > 0.01;
   if (exC1.g.visible) {
-    exC1.g.position.set(pp.x, 0.05, pp.z); exC2.g.position.set(pp.x, 0.07, pp.z); exC1.g.scale.setScalar(Math.max(0.01, 6 * cs)); exC2.g.scale.setScalar(Math.max(0.01, 3.4 * cs));
+    exC1.g.position.set(pp.x, fxY + 0.05, pp.z); exC2.g.position.set(pp.x, fxY + 0.07, pp.z); exC1.g.scale.setScalar(Math.max(0.01, 6 * cs)); exC2.g.scale.setScalar(Math.max(0.01, 3.4 * cs));
     exC1.g.rotation.z += dt * (0.6 + 1.8 * chg); exC2.g.rotation.z -= dt * (1.2 + 3 * chg); exC1.m.opacity = co; exC2.m.opacity = co * 0.9;
   }
   // pita energi
   const so = ph === 2 ? 0.85 * u2 : ph === 3 ? 0.9 : ph === 4 ? 0.9 * (1 - u4) : 0, ss = ph === 1 ? 0.3 : ph === 2 ? 0.4 + 0.6 * u2 : ph === 3 ? 1 + 0.25 * u3 : 1.25 + 2.2 * u4;
   exSp.visible = so > 0.01;
-  if (exSp.visible) { exSp.position.set(pp.x, 0.05, pp.z); exSp.scale.setScalar(ss); exSpm.opacity = so; const spd = 1.5 + 5 * (ph === 2 ? u2 : ph === 3 ? 1 : ph === 4 ? 2 : 0); for (const c of exSp.children) c.rotation.y += dt * c.userData.sp * spd; }
+  if (exSp.visible) { exSp.position.set(pp.x, fxY + 0.05, pp.z); exSp.scale.setScalar(ss); exSpm.opacity = so; const spd = 1.5 + 5 * (ph === 2 ? u2 : ph === 3 ? 1 : ph === 4 ? 2 : 0); for (const c of exSp.children) c.rotation.y += dt * c.userData.sp * spd; }
   // butiran cahaya
   const mo = ph === 1 ? 0.5 : ph === 2 || ph === 3 ? 1 : ph === 4 ? 0.8 * (1 - u4) : 0;
   exMotes.visible = mo > 0.01;
@@ -4366,7 +4762,7 @@ function exFxTick(dt) {
     exMotes.material.opacity = mo;
     for (let i = 0; i < EXN; i++) {
       const s = exMs[i]; s.a += s.w * dt * (1 + chg * 2); s.y += s.vy * dt * (1 + (ph >= 2 ? 1 : 0)); if (s.y > 9) { s.y = 0; s.r = rnd(0.8, 8); s.a = rnd(0, 6.283); }
-      const r = s.r * (1 - 0.5 * (s.y / 9)); exMp[i * 3] = pp.x + Math.cos(s.a) * r; exMp[i * 3 + 1] = s.y; exMp[i * 3 + 2] = pp.z + Math.sin(s.a) * r;
+      const r = s.r * (1 - 0.5 * (s.y / 9)); exMp[i * 3] = pp.x + Math.cos(s.a) * r; exMp[i * 3 + 1] = fxY + s.y; exMp[i * 3 + 2] = pp.z + Math.sin(s.a) * r;
     }
     exMg.attributes.position.needsUpdate = true;
   }
@@ -4376,20 +4772,20 @@ function exFxTick(dt) {
   if (exBeam.visible) {
     const o = EX.org, d = EX.dir; exBeam.position.copy(o); exBeam.lookAt(o.x + d.x, o.y + d.y, o.z + d.z);
     [[2.6, 0.45], [1.4, 0.75], [0.55, 1]].forEach(([r, a], i) => { exBc[i].scale.set(r * w * fl, r * w * fl, EX.beamL); exBm[i].opacity = a * Math.min(1, w * 1.5); });
-    exGround.position.set(o.x, 0.06, o.z); exGround.rotation.y = Math.atan2(d.x, d.z); exGround.scale.set(6 * w, 1, EX.beamL); exGround.material.opacity = 0.55 * w;
+    exGround.position.set(o.x, fxY + 0.06, o.z); exGround.rotation.y = Math.atan2(d.x, d.z); exGround.scale.set(6 * w, 1, EX.beamL); exGround.material.opacity = 0.55 * w;
   }
   // bola cahaya di ujung pedang
   const oo = !tip ? 0 : ph === 3 ? 0.6 + 0.4 * u3 : ph === 4 ? Math.max(w, 0.0) : 0;
   exOrb.visible = oo > 0.01;
   if (exOrb.visible) { exOrb.position.copy(ph === 4 ? EX.org : tip); exOrb.scale.setScalar(ph === 3 ? 1.5 + 9 * u3 : 12 * (0.6 + 0.4 * w) * fl); exOrb.material.opacity = oo; }
   // lampu emas
-  exLight.position.set(tip ? tip.x : pp.x, (tip ? tip.y : 1.5) + 1, tip ? tip.z : pp.z);
+  exLight.position.set(tip ? tip.x : pp.x, (tip ? tip.y : fxY + 1.5) + 1, tip ? tip.z : pp.z);
   exLight.intensity = ph === 1 ? 20 * u1 : ph === 2 ? 40 + 120 * u2 : ph === 3 ? 200 : ph === 4 ? 260 * Math.max(0.15, w) * fl : 60 * (1 - u5);
 }
 
 function pulse(color, max, dur) {
   const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 48), glowMat(color));
-  m.rotation.x = -Math.PI / 2; m.position.copy(player.position).setY(0.1); scene.add(m);
+  m.rotation.x = -Math.PI / 2; m.position.copy(player.position).setY(fxY + 0.1); scene.add(m);
   pulses.push({ m, t: dur, dur, max });
 }
 function skill(k) {
@@ -4399,7 +4795,7 @@ function skill(k) {
   const f = new THREE.Vector3(Math.sin(P.face), 0, Math.cos(P.face));
   if (k === 's1') { // 1. Vertical Spin: berputar vertikal dengan dua pedang
     startVS();
-  } else if (k === 's2') { // 2. Slash Besar: mengayunkan dua pedang dalam satu tebasan besar
+  } else if (k === 's2') { // 2. Dash Zig-zag Petir: terjang zig-zag (arah diatur pemain) dengan petir ungu
     startSL();
   } else if (k === 's6') { // 6. Excalibur: dua pedang menyatu, mengisi cahaya suci, melepas sinar emas raksasa
     exTheme(DK.on); startEX();
@@ -4452,6 +4848,15 @@ if (skBtn.s6 && skBtn.s6.parentNode) {   // tombol layar sentuh Dark Mode (mengg
   skBtn.s6.parentNode.appendChild(nb);
 }
 document.querySelectorAll('#btns button').forEach(b => b.addEventListener('pointerdown', e => { e.preventDefault(); ACT[b.dataset.a](); }));
+// Skill 2 mode bidik (layar sentuh): tahan tombol 2 untuk membidik, lepas untuk menerjang; saat membidik tombol serang = titik bidik naik, tombol guling = turun
+if (skBtn.s2) skBtn.s2.addEventListener('pointerdown', e => { SL.pid = e.pointerId; });
+addEventListener('pointerup', e => { if (e.pointerId === SL.pid) { SL.pid = -1; slRelease(); } });
+addEventListener('pointercancel', e => { if (e.pointerId === SL.pid) { SL.pid = -1; slRelease(); } });
+document.querySelectorAll('#btns button').forEach(b => {
+  const f = b.dataset.a === 'atk' ? 'upBtn' : b.dataset.a === 'roll' ? 'dnBtn' : null; if (!f) return;
+  b.addEventListener('pointerdown', () => { SL[f] = true; });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => b.addEventListener(n, () => { SL[f] = false; }));
+});
 $('talk').addEventListener('pointerdown', e => { e.preventDefault(); talkAct(); });
 ['top', 'btns', 'stick', 'settings', 'talk'].forEach(i => $(i).addEventListener('mousedown', e => e.stopPropagation()));
 function setTouch(on) {
@@ -4485,6 +4890,118 @@ $('settings').addEventListener('pointerdown', e => { if (e.target === $('setting
 document.querySelectorAll('#segcam button').forEach(b => b.onclick = () => setCam(b.dataset.cam));
 document.querySelectorAll('#segmode button').forEach(b => b.onclick = () => setTouch(b.dataset.mode === 'android'));
 setTouch(matchMedia('(pointer:coarse)').matches); // otomatis aktif di HP/tablet
+
+// ---------- Atur Tombol (mode Android): geser posisi & ubah ukuran tombol / joystick ----------
+// Buka: Pengaturan -> "Atur Tombol". Seret tombol / joystick untuk memindahkan, ketuk untuk memilih lalu atur ukurannya dengan slider
+// (ada juga slider ukuran untuk semua tombol aksi sekaligus). Tersimpan otomatis di localStorage ('luis_ui_layout_v1'). Reset = kembali ke bawaan.
+// Memakai properti CSS `translate` & `scale` (terpisah dari `transform`) supaya tidak bentrok dengan gaya tombol yang sudah ada.
+const UIK = 'luis_ui_layout_v1', UISEL = '#stick, #talk, #btns button';
+const UIE = { on: false, g: 1, items: {}, sel: null, drag: null, prevTouch: false };
+// penyimpanan: localStorage dulu (dibaca ulang untuk memastikan benar-benar tersimpan), cadangan cookie bila localStorage diblokir
+function uiStoreSet(str) {
+  let ok = false;
+  try { localStorage.setItem(UIK, str); ok = localStorage.getItem(UIK) === str; } catch (err) { /* diblokir */ }
+  try { document.cookie = UIK + '=' + encodeURIComponent(str) + ';max-age=31536000;path=/;SameSite=Lax'; if (!ok) ok = document.cookie.indexOf(UIK + '=') >= 0; } catch (err) { /* diblokir */ }
+  return ok;
+}
+function uiStoreGet() {
+  try { const v = localStorage.getItem(UIK); if (v) return v; } catch (err) { /* diblokir */ }
+  try { const m = document.cookie.match(new RegExp('(?:^|; )' + UIK + '=([^;]*)')); if (m) return decodeURIComponent(m[1]); } catch (err) { /* diblokir */ }
+  return null;
+}
+try { const o = JSON.parse(uiStoreGet() || '{}'); if (o && typeof o === 'object') { UIE.g = +o.g || 1; UIE.items = o.items && typeof o.items === 'object' ? o.items : {}; } } catch (err) { /* abaikan */ }
+let uiFailShown = false;
+function uiSave(say) {   // say = true: tampilkan notifikasi berhasil; gagal selalu diberitahu (sekali kecuali say)
+  const ok = uiStoreSet(JSON.stringify({ g: UIE.g, items: UIE.items }));
+  if (ok && say === true) toast('✅ Tata letak tombol tersimpan', 2000);
+  else if (!ok && (say === true || !uiFailShown)) { uiFailShown = true; toast('⚠️ Gagal menyimpan: browser memblokir penyimpanan (localStorage & cookie)', 4000); }
+  return ok;
+}
+const uiEls = () => [...document.querySelectorAll(UISEL)];
+const uiKey = el => el.id || ('btn_' + (el.dataset.a || [...el.parentNode.children].indexOf(el)));
+const uiIsBtn = el => el.matches('#btns button');
+const uiItem = el => UIE.items[uiKey(el)] || (UIE.items[uiKey(el)] = { x: 0, y: 0, s: 1 });
+function uiApply(el) {
+  const it = UIE.items[uiKey(el)] || { x: 0, y: 0, s: 1 }, s = (it.s || 1) * (uiIsBtn(el) ? UIE.g : 1);
+  el.style.translate = (it.x || it.y) ? `${it.x}px ${it.y}px` : '';
+  el.style.scale = Math.abs(s - 1) > 1e-3 ? String(s) : '';
+}
+function uiClamp(el) {   // jaga supaya tombol tidak keluar layar
+  const r = el.getBoundingClientRect(); if (!r.width || !r.height) return;
+  let dx = 0, dy = 0;
+  if (r.left < 0) dx = -r.left; else if (r.right > innerWidth) dx = innerWidth - r.right;
+  if (r.top < 0) dy = -r.top; else if (r.bottom > innerHeight) dy = innerHeight - r.bottom;
+  if (dx || dy) { const it = uiItem(el); it.x += dx; it.y += dy; uiApply(el); }
+}
+const uiApplyAll = () => uiEls().forEach(uiApply);
+{
+  const css = document.createElement('style');
+  css.textContent = `
+body.ui-editing #stick, body.ui-editing #talk, body.ui-editing #btns button { outline: 2px dashed rgba(255,255,255,.85); outline-offset: 3px; touch-action: none !important; cursor: move; }
+body.ui-editing #talk[hidden] { display: block !important; }
+body.ui-editing .ui-sel { outline: 3px solid #ffd34d !important; }
+#uiedit { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 100000; width: min(340px, 92vw); box-sizing: border-box; padding: 12px 14px; border-radius: 14px; background: rgba(14, 10, 28, .94); border: 1px solid rgba(255,255,255,.25); color: #fff; font: 13px/1.4 system-ui, sans-serif; display: flex; flex-direction: column; gap: 8px; touch-action: manipulation; }
+#uiedit[hidden] { display: none; }
+#uiedit label { display: flex; flex-direction: column; gap: 4px; }
+#uiedit input[type=range] { width: 100%; }
+#uiedit .uibtns { display: flex; gap: 8px; }
+#uiedit button { flex: 1; padding: 9px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.12); color: #fff; font: inherit; cursor: pointer; }
+#uiedit button#uiDone { background: #7a4dff; border-color: #a98aff; font-weight: 600; }`;
+  document.head.appendChild(css);
+  const bar = document.createElement('div'); bar.id = 'uiedit'; bar.hidden = true;
+  bar.innerHTML = '<b>🎛️ Atur Tombol</b><div>Seret tombol / joystick untuk memindahkan. Ketuk untuk memilih, lalu atur ukurannya.</div>'
+    + '<label><span>Ukuran terpilih: <b id="uisT">pilih tombol dulu</b></span><input id="uisS" type="range" min="50" max="220" step="5" value="100" disabled></label>'
+    + '<label><span>Ukuran semua tombol aksi: <b id="uigT">100%</b></span><input id="uigS" type="range" min="60" max="160" step="5" value="100"></label>'
+    + '<div class="uibtns"><button id="uiReset">Reset</button><button id="uiDone">Selesai</button></div>';
+  document.body.appendChild(bar);
+  const seg = $('segmode');   // tombol pembuka di menu Pengaturan (di bawah pilihan mode kontrol)
+  if (seg) {
+    const wrap = document.createElement('div'), b = document.createElement('button');
+    wrap.style.cssText = 'margin-top:8px'; b.type = 'button'; b.textContent = '🎛️ Atur Tombol (geser & ukuran)';
+    b.style.cssText = 'width:100%;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:inherit;font:inherit;cursor:pointer';
+    b.onclick = () => uiStart(); wrap.appendChild(b); seg.insertAdjacentElement('afterend', wrap);
+  }
+}
+function uiSelect(el) {
+  if (UIE.sel) UIE.sel.classList.remove('ui-sel');
+  UIE.sel = el; const s = $('uisS'), t = $('uisT');
+  if (el) { el.classList.add('ui-sel'); const v = Math.round(uiItem(el).s * 100); s.disabled = false; s.value = v; t.textContent = v + '%'; }
+  else { s.disabled = true; t.textContent = 'pilih tombol dulu'; }
+}
+function uiStart() {
+  UIE.on = true; UIE.prevTouch = document.body.classList.contains('touch'); if (!UIE.prevTouch) setTouch(true);   // tombol layar hanya tampil di mode Android
+  document.body.classList.add('ui-editing'); $('settings').hidden = true; $('uiedit').hidden = false; uiSelect(null);
+  $('uigS').value = Math.round(UIE.g * 100); $('uigT').textContent = Math.round(UIE.g * 100) + '%';
+}
+function uiDone() {
+  UIE.on = false; UIE.drag = null; uiSelect(null); document.body.classList.remove('ui-editing'); $('uiedit').hidden = true; $('settings').hidden = false;
+  if (!UIE.prevTouch) setTouch(false);
+  uiEls().forEach(uiClamp); uiSave(true);
+}
+addEventListener('pointerdown', e => {   // fase capture: selama mengatur, tombol TIDAK menjalankan skill / joystick, hanya bisa diseret
+  if (!UIE.on) return;
+  const t = e.target; if (t.closest && t.closest('#uiedit')) return;
+  e.stopImmediatePropagation(); e.preventDefault();
+  const el = t.closest ? t.closest(UISEL) : null;
+  if (!el) { uiSelect(null); return; }
+  uiSelect(el); const it = uiItem(el);
+  UIE.drag = { id: e.pointerId, el, sx: e.clientX, sy: e.clientY, x0: it.x, y0: it.y };
+}, true);
+addEventListener('pointermove', e => {
+  const d = UIE.drag; if (!d || e.pointerId !== d.id) return;
+  const it = uiItem(d.el); it.x = d.x0 + e.clientX - d.sx; it.y = d.y0 + e.clientY - d.sy; uiApply(d.el);
+});
+const uiUp = e => { const d = UIE.drag; if (!d || e.pointerId !== d.id) return; UIE.drag = null; uiClamp(d.el); uiSave(); };
+addEventListener('pointerup', uiUp); addEventListener('pointercancel', uiUp);
+addEventListener('keydown', e => { if (UIE.on && e.code === 'Escape') { e.stopImmediatePropagation(); uiDone(); } }, true);
+$('uisS').oninput = () => { if (!UIE.sel) return; const v = +$('uisS').value; uiItem(UIE.sel).s = v / 100; $('uisT').textContent = v + '%'; uiApply(UIE.sel); uiClamp(UIE.sel); uiSave(); };
+$('uisS').onchange = () => uiSave();
+$('uigS').oninput = () => { UIE.g = +$('uigS').value / 100; $('uigT').textContent = $('uigS').value + '%'; uiApplyAll(); uiSave(); };
+$('uigS').onchange = () => uiSave();
+$('uiDone').onclick = () => uiDone();
+$('uiReset').onclick = () => { UIE.g = 1; UIE.items = {}; uiApplyAll(); uiSelect(null); $('uigS').value = 100; $('uigT').textContent = '100%'; uiSave(true); };
+addEventListener('resize', () => uiEls().forEach(uiClamp));
+uiApplyAll(); requestAnimationFrame(() => uiEls().forEach(uiClamp));
 
 // ---------- Layar penuh ----------
 const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
@@ -4591,20 +5108,22 @@ const LASER_DMG = 10;    // damage per kena (pemain kebal sebentar setelah terke
 const BREATH_T = { open: 0.4, fire: 0.5, end: 0.5 + LASER_DUR, done: 0.5 + LASER_DUR + 0.4 }; // jadwal semburan: buka mulut -> laser menyala -> laser mati -> mulut menutup
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 function dragonMouth(e, out) {
+  if (e.mouthFn) { const m = e.mouthFn(out); if (m) return m; }   // Naga Kuno: dari tulang kepala adult_dragon.glb
   if (e.rig) return e.rig.mp.getWorldPosition(out);
   return out.copy(e.g.position).addScaledVector(new THREE.Vector3(Math.sin(e.g.rotation.y), 0, Math.cos(e.g.rotation.y)), 3.4).setY(5.6);
 }
 function startLaser(e) {
   stopLaser(); audio.sfx('breath', { maxDur: 2.8 });
-  const o = dragonMouth(e, new THREE.Vector3()), dir = player.position.clone().setY(1.1).sub(o).normalize();
+  const gy = e.skydrag ? player.position.y : 0, o = dragonMouth(e, new THREE.Vector3()), dir = player.position.clone().setY(1.1 + gy).sub(o).normalize();   // gy = tinggi tanah di bawah pemain (naga terbang di gunung)
   const side = e.ls || 1; // arah sapuan (dipilih acak saat aba-aba): kiri->kanan atau kanan->kiri
   dir.applyAxisAngle(Y_AXIS, -side * LASER_SWEEP / 2).normalize(); // mulai dari samping pemain (bukan tepat di pemain), lalu menyapu melewatinya
   const g = new THREE.Group(), mat = (c, op) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
   const beam = (r, c, op) => { const geo = new THREE.CylinderGeometry(r, r, 1, 14, 1, true); geo.translate(0, 0.5, 0); const m = new THREE.Mesh(geo, mat(c, op)); m.frustumCulled = false; g.add(m); return [m, op]; };
-  const parts = [beam(0.12, 0xfff6d0, 1), beam(0.3, 0xffa030, 0.6), beam(0.62, 0xff4a10, 0.25)]; // inti putih -> tengah oranye -> selubung merah
-  const mouthG = new THREE.Mesh(new THREE.SphereGeometry(0.7, 14, 12), mat(0xffc060, 0.8)), hitG = new THREE.Mesh(new THREE.SphereGeometry(1.0, 14, 12), mat(0xff7a20, 0.7)); // cahaya di mulut & di titik tumbukan
+  const ic = !!e.iceBreath;   // semburan ES Naga Kuno: warna biru & membekukan pemain
+  const parts = ic ? [beam(0.12, 0xffffff, 1), beam(0.3, 0x7fdcff, 0.6), beam(0.62, 0x2a86ff, 0.25)] : [beam(0.12, 0xfff6d0, 1), beam(0.3, 0xffa030, 0.6), beam(0.62, 0xff4a10, 0.25)]; // inti putih -> tengah oranye -> selubung merah
+  const mouthG = new THREE.Mesh(new THREE.SphereGeometry(0.7, 14, 12), mat(ic ? 0xaee8ff : 0xffc060, 0.8)), hitG = new THREE.Mesh(new THREE.SphereGeometry(1.0, 14, 12), mat(ic ? 0x5ac8ff : 0xff7a20, 0.7)); // cahaya di mulut & di titik tumbukan
   g.add(mouthG, hitG); scene.add(g);
-  laser = { e, g, parts, mouthG, hitG, dir, t: 0, o: new THREE.Vector3(), rate: side * LASER_SWEEP / LASER_DUR };
+  laser = { e, g, parts, mouthG, hitG, dir, t: 0, o: new THREE.Vector3(), rate: side * LASER_SWEEP / LASER_DUR, ice: ic };
   shake = Math.max(shake, 0.25);
 }
 function stopLaser() {
@@ -4615,17 +5134,21 @@ function updateLaser(dt) {
   const z = laser; if (!z) return;
   const e = z.e; z.t += dt;
   if (z.t >= LASER_DUR || e.dying || !enemies.includes(e)) { stopLaser(); return; }
-  const o = dragonMouth(e, z.o);
+  const gy = e.skydrag ? player.position.y : 0, o = dragonMouth(e, z.o);
   z.dir.applyAxisAngle(Y_AXIS, z.rate * dt).normalize(); // menyapu mendatar ke satu sisi dengan kecepatan tetap, tanpa auto-lock
-  const L = z.dir.y < -0.05 ? Math.min(o.y / -z.dir.y, 60) : 60; // sampai menembus lantai
+  const L = z.dir.y < -0.05 ? Math.min((o.y - gy) / -z.dir.y, 60) : 60; // sampai menembus lantai
   const end = o.clone().addScaledVector(z.dir, L);
-  const p = player.position.clone().setY(1.0), tt = Math.max(0, Math.min(L, p.clone().sub(o).dot(z.dir))); // titik terdekat pemain pada garis laser
-  if (o.clone().addScaledVector(z.dir, tt).distanceTo(p) < LASER_R) hurtPlayer(LASER_DMG);
+  const p = player.position.clone().setY(1.0 + gy), tt = Math.max(0, Math.min(L, p.clone().sub(o).dot(z.dir))); // titik terdekat pemain pada garis laser
+  if (o.clone().addScaledVector(z.dir, tt).distanceTo(p) < LASER_R) {
+    if (z.ice) {   // semburan es: kena = terluka sedikit + MEMBEKU (terjebak balok es), lalu dilanjut kombo bola es raksasa (lihat nagaIceTick)
+      if (P.trap <= 0 && iceHurt(NAGA_ICE.breathDmg) && !AIMSW.on) { trapPlayer(NAGA_ICE.freeze); if (P.trap > 0) { nIce.wait = NAGA_ICE.combo.delay; nIce.wx = player.position.x; nIce.wz = player.position.z; } }
+    } else hurtPlayer(LASER_DMG);
+  }
   const env = Math.min(1, z.t / 0.12) * Math.min(1, (LASER_DUR - z.t) / 0.2), pul = 1 + 0.15 * Math.sin(z.t * 60);
   z.g.position.copy(o); z.g.quaternion.setFromUnitVectors(Y_AXIS, z.dir);
   z.parts.forEach(([m, op]) => { m.scale.set(env * pul, L, env * pul); m.material.opacity = op * env; });
   z.mouthG.scale.setScalar(env * (0.9 + 0.2 * Math.sin(z.t * 45))); z.hitG.position.set(0, L, 0); z.hitG.scale.setScalar(env * (0.9 + 0.25 * Math.sin(z.t * 52 + 1)));
-  if (Math.random() < 0.8) burst(end.clone().setY(0.15), Math.random() < 0.5 ? 0xffa040 : 0xffe0a0, 3, 6); // percikan api di lantai
+  if (Math.random() < 0.8) burst(end.clone().setY(0.15 + gy), z.ice ? (Math.random() < 0.5 ? 0x9fe8ff : 0xffffff) : (Math.random() < 0.5 ? 0xffa040 : 0xffe0a0), 3, 6); // percikan api / es di lantai
   shake = Math.max(shake, 0.12 * env);
 }
 // ---- Hantaman naga: bola api raksasa seukuran area hantaman (muncul & membesar), disusul ledakan + gelombang kejut ----
@@ -4701,7 +5224,7 @@ function clawMark(e, d, side) { // tiga garis cakaran menyala di udara, searah t
   }
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
   const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xff8a40, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
-  m.position.copy(e.g.position).addScaledVector(d, 3.4).setY(0.6); m.rotation.y = e.g.rotation.y; scene.add(m);
+  m.position.copy(e.g.position).addScaledVector(d, 3.4).setY(e.skydrag ? player.position.y + 0.6 : 0.6); m.rotation.y = e.g.rotation.y; scene.add(m);
   fx.push({ m, v: new THREE.Vector3(), life: 0.35, max: 0.35, slash: true });
 }
 function clawHit(e, d, dist, side) {
@@ -4790,7 +5313,7 @@ function dragonAI(e, d, dist, dt) {
     else if ((e.slam -= dt) <= 0) { // hentakan: lingkaran peringatan di posisi pemain, naga menegakkan badan lalu menghantam
       e.slam = 8; e.st = 0.001;
       const rm = new THREE.Mesh(new THREE.RingGeometry(0.1, 6.8, 48), new THREE.MeshBasicMaterial({ color: 0xff2020, transparent: true, opacity: 0.35, side: THREE.DoubleSide }));
-      rm.rotation.x = -Math.PI / 2; rm.position.copy(player.position).setY(0.05); scene.add(rm); rings.push({ m: rm, t: 1.32, rad: 6.9, dmg: 30, big: true, kind: 'dragon' }); // t = saat kaki menghantam tanah
+      rm.rotation.x = -Math.PI / 2; rm.position.copy(player.position).setY(e.skydrag ? player.position.y + 0.05 : 0.05); scene.add(rm); rings.push({ m: rm, t: 1.32, rad: 6.9, dmg: 30, big: true, kind: 'dragon' }); // t = saat kaki menghantam tanah
     }
   }
   let pitch = Math.sin(e.ph * 1.6) * 0.02 - 0.08 * e.rx, bob = Math.sin(e.ph * 1.6) * 0.06, glow = 0; // saat meraung badan sedikit condong ke belakang
@@ -4817,7 +5340,7 @@ function dragonAI(e, d, dist, dt) {
   m.rotation.y += (twist - m.rotation.y) * (1 - Math.exp(-dt * 18)); m.rotation.x += (pitch - m.rotation.x) * (1 - Math.exp(-dt * 18)); m.position.y += (bob - m.position.y) * (1 - Math.exp(-dt * 18));
   dragonLife(e, dt, d);
   if (laser && laser.e === e) updateLaser(dt); // setelah pose kepala diperbarui, supaya laser keluar tepat dari mulut
-  if (e.flash <= 0 && glow > 0) e.mat.emissive.setRGB(0.5 * glow, 0.12 * glow, 0.02 * glow); // memerah saat bersiap menyerang
+  if (e.flash <= 0 && glow > 0) { if (e.iceBreath) e.mat.emissive.setRGB(0.05 * glow, 0.3 * glow, 0.6 * glow); else e.mat.emissive.setRGB(0.5 * glow, 0.12 * glow, 0.02 * glow); } // memerah (api) / membiru (es) saat bersiap menyerang
 }
 
 // ---------- Bos golem: Tharok (golem.glb), dilawan lewat Pintu Penjaga di Reruntuhan Kuno ----------
@@ -4935,9 +5458,11 @@ function clearGPillars() {
 }
 function airTick(dt) { // pemain terlontar: gravitasi, terdorong menjauh, mendarat
   if (!P.air) return;
+  if (P.sl > 0 && SL.way && (SL.ph === 'dash' || SL.ph === 'rec')) return;   // Dash Zig-zag mode bidik: melayang mengikuti jalur, jatuh setelah selesai
   P.vy -= PILLAR.gravity * dt; player.position.y += P.vy * dt; player.position.addScaledVector(P.kb, dt); P.kb.multiplyScalar(Math.exp(-dt * 2.2));
-  if (player.position.y <= 0 && P.vy < 0) {
-    player.position.y = 0; P.air = false; P.vy = 0; P.kb.set(0, 0, 0); P.inv = Math.max(P.inv, 0.5); // jeda kebal sebentar setelah mendarat
+  const gy = slGround(player.position.x, player.position.z, player.position.y);   // tanah di bawah pemain (termasuk dek jembatan antar-puncak bila ia mendarat di atasnya) (naik di Gunung Pendakian)
+  if (player.position.y <= gy && P.vy < 0) {
+    player.position.y = gy; P.air = false; P.vy = 0; P.kb.set(0, 0, 0); P.inv = Math.max(P.inv, 0.5); // jeda kebal sebentar setelah mendarat
     shake = Math.max(shake, 0.25); burst(player.position.clone().setY(0.2), 0xcfefff, 10, 5); audio.sfx('thud', { vol: 0.5, rate: 0.8 });
   }
 }
@@ -5060,6 +5585,14 @@ function banner(t, ms = 1800) { $('msg').textContent = t; setTimeout(() => { if 
 const F = { t: 0 }, FALL_TOTAL = 1.3;
 const START_IN_KOTA = true;   // true: permainan baru langsung dimulai di Kota Dungeon (menang atas START_IN_KEKAISARAN); false: pakai pengaturan di bawah
 const START_IN_KEKAISARAN = true;   // true: permainan baru langsung dimulai di Halaman Istana, Kota Kekaisaran (false: mulai di Ladang Sawah / Dataran Hijau)
+const START_IN_TL = true;   // true: permainan baru langsung dimulai di Padang Rumput Timur Laut, tepat di luar Gerbang Timur Laut (menang atas START_IN_KOTA & START_IN_KEKAISARAN); false: pakai pengaturan lain
+const START_ON_RIDGE = true;   // true: permainan baru langsung dimulai di kepala Pegunungan Naga (di belakang Gunung Agung), menghadap ke ujung punggungan; false: mulai di padang seperti biasa
+const START_AT_DESC = false;   // true: permainan baru langsung dimulai di Lembah Salju (dasar Jalur Turun, sebelum jembatan), menghadap jembatan & Hutan Salju; false: mulai di padang seperti biasa
+const TL_START = START_AT_DESC
+  ? (() => { const a = neDescToAxis(NE_DESC.sR - 24, NE_DESC.uEnd), b = neDescToAxis(NE_DESC.sR - 8, NE_DESC.uEnd), pa = neAxisToWorld(a.d, a.off), pb = neAxisToWorld(b.d, b.off); return { x: pa.x, z: pa.z, face: Math.atan2(pb.x - pa.x, pb.z - pa.z) }; })()
+  : START_ON_RIDGE
+  ? (() => { const a = neRidgeToAxis(8, 0), b = neRidgeToAxis(24, 0), pa = neAxisToWorld(a.d, a.off), pb = neAxisToWorld(b.d, b.off); return { x: pa.x, z: pa.z, face: Math.atan2(pb.x - pa.x, pb.z - pa.z) }; })()
+  : (() => { const d = APOTHEM + 45, a = neAxisToWorld(d), b = neAxisToWorld(d + 16); return { x: a.x, z: a.z, face: Math.atan2(b.x - a.x, b.z - a.z) }; })();   // spawn: 45 m di luar Gerbang Timur Laut, di tengah jalan, menghadap ke arah ujung padang   // spawn: 45 m di luar Gerbang Timur Laut, di tengah jalan, menghadap ke arah ujung padang
 const KOTA_START = (() => { const d = DUNGEON_GATES[0].d - 28, a = nwAxisToWorld(d), b = nwAxisToWorld(d + 16); return { x: a.x, z: a.z, face: Math.atan2(b.x - a.x, b.z - a.z) }; })();   // spawn awal: di tengah mulut Lembah Bebatuan, sedikit sebelum pasangan gerbang pertama (Kristal / Kegelapan), menghadap ke dalam lembah (dulu: di dalam lengkung gerbang kota, d0 + 24)
 const KOTA_OUT = (() => { const a = nwAxisToWorld(DUNGEON_TOWN.gateD - 6), b = nwAxisToWorld(DUNGEON_TOWN.gateD - 16); return { x: a.x, z: a.z, face: Math.atan2(b.x - a.x, b.z - a.z) }; })();   // muncul 6 m di depan portal, menghadap kota
 const gateOut = id => { const g = DUNGEON_GATES.find(x => x.id === id), off = g.side * (g.w - 7), a = nwAxisToWorld(g.d, off), b = nwAxisToWorld(g.d, off - g.side * 10); return { x: a.x, z: a.z, face: Math.atan2(b.x - a.x, b.z - a.z) }; };   // muncul 7 m di depan relung gerbang, menghadap tengah lembah
@@ -5074,24 +5607,27 @@ function enterWorld(fromHole = false, note = null) {
   if (kotaMode) { kotaMode = false; dgTheme = null; WAVES = DUNGEON_WAVES; $('exit').textContent = '🌿 Keluar Dungeon'; applyArenaTheme('asal'); }
   exploreMode = false; bossRoom = false; R = ARENA_R; disposeExplore();   // keluar dari dungeon jelajah / ruang bos
   const kOut = kId ? gateOut(kId) : KOTA_OUT;   // keluar dari dungeon tambahan -> muncul di depan gerbangnya
-  const startKota = !fromHole && !fromGolem && START_IN_KOTA;   // mulai permainan: muncul di Kota Dungeon
-  const inKek = !fromHole && !fromGolem && !startKota && START_IN_KEKAISARAN;   // mulai permainan: muncul di halaman istana Kota Kekaisaran, menghadap pintu agung
-  const inTown = !fromHole && !inKek && !startKota && CITY.open;   // mulai permainan: muncul di depan Ladang Sawah, di balik gerbang padang (kembali dari dungeon tetap di tepi lubang)
+  const startTL = !fromHole && !fromGolem && START_IN_TL;   // mulai permainan: muncul di Padang Rumput Timur Laut
+  const startKota = !fromHole && !fromGolem && !startTL && START_IN_KOTA;   // mulai permainan: muncul di Kota Dungeon
+  const inKek = !fromHole && !fromGolem && !startKota && !startTL && START_IN_KEKAISARAN;   // mulai permainan: muncul di halaman istana Kota Kekaisaran, menghadap pintu agung
+  const inTown = !fromHole && !inKek && !startKota && !startTL && CITY.open;   // mulai permainan: muncul di depan Ladang Sawah, di balik gerbang padang (kembali dari dungeon tetap di tepi lubang)
+  if (startTL) world.ensure('dataran-tl');   // Padang Rumput Timur Laut harus sudah selesai dibangun sebelum pemain muncul di sana
   if (fromKota || startKota) world.ensure('kota-dungeon');   // Kota Dungeon harus sudah selesai dibangun sebelum pemain muncul di sana
-  const sp = startKota ? KOTA_START : fromKota ? kOut : fromGolem ? RUINS_DOOR.out : fromHole ? { x: 1.6, z: 6.0 } : inKek ? { x: AULA.spawnOut.x, z: AULA.spawnOut.z, face: AULA.spawnOut.face + Math.PI } : inTown ? SAWAH_SPAWN : SPAWN;
+  const sp = startTL ? TL_START : startKota ? KOTA_START : fromKota ? kOut : fromGolem ? RUINS_DOOR.out : fromHole ? { x: 1.6, z: 6.0 } : inKek ? { x: AULA.spawnOut.x, z: AULA.spawnOut.z, face: AULA.spawnOut.face + Math.PI } : inTown ? SAWAH_SPAWN : SPAWN;
   if (inKek) world.ensure('kekaisaran');   // Kota Kekaisaran (termasuk tangga istana & interior aula) harus sudah selesai dibangun sebelum pemain muncul di sana
-  player.position.set(sp.x, inKek ? world.kekGroundY(sp.x, sp.z) : 0, sp.z); player.rotation.set(0, 0, 0); if (vrm) vrm.scene.rotation.x = 0;
+  player.position.set(sp.x, inKek ? world.kekGroundY(sp.x, sp.z) : startTL && (START_ON_RIDGE || START_AT_DESC) ? neMtnH(sp.x, sp.z) : 0, sp.z); player.rotation.set(0, 0, 0); if (vrm) vrm.scene.rotation.x = 0;
   if (inTown) { world.ensure('padang-' + (MEADOW_SEG_X.length - 1)); world.ensure('sawah-1'); }   // gerbang padang & bagian pertama ladang harus sudah selesai dibangun sebelum pemain muncul di sana
   world.refresh(player.position);   // chunk yang tampil langsung menyesuaikan posisi baru (mis. kembali dari dungeon / mulai ulang)
-  P.face = startKota ? KOTA_START.face : fromKota ? kOut.face : fromGolem ? RUINS_DOOR.out.face : fromHole ? Math.atan2(sp.x, sp.z) : inKek ? sp.face : inTown ? SAWAH_SPAWN.face : Math.atan2(-SPAWN.x, -SPAWN.z); player.rotation.y = P.face; P.v.set(0, 0, 0);
+  P.face = startTL ? TL_START.face : startKota ? KOTA_START.face : fromKota ? kOut.face : fromGolem ? RUINS_DOOR.out.face : fromHole ? Math.atan2(sp.x, sp.z) : inKek ? sp.face : inTown ? SAWAH_SPAWN.face : Math.atan2(-SPAWN.x, -SPAWN.z); player.rotation.y = P.face; P.v.set(0, 0, 0);
   camYaw = P.face + Math.PI; cam.position.set(sp.x - Math.sin(P.face) * 9, player.position.y + 4.2, sp.z - Math.cos(P.face) * 9);
-  $('boss').hidden = true; $('wave').textContent = fromKota || startKota ? '⚔️ ' + DUNGEON_TOWN.name : fromGolem ? '🏛️ ' + RUINS.name : inKek ? '👑 Halaman Istana' : inTown ? '🌾 ' + SAWAH.name : '🌿 Dataran Hijau'; $('obj').hidden = false; doorBusy = false; doorNear = false;
+  $('boss').hidden = true; $('wave').textContent = startTL ? '🌾 Padang Rumput Timur Laut' : fromKota || startKota ? '⚔️ ' + DUNGEON_TOWN.name : fromGolem ? '🏛️ ' + RUINS.name : inKek ? '👑 Halaman Istana' : inTown ? '🌾 ' + SAWAH.name : '🌿 Dataran Hijau'; $('obj').hidden = false; doorBusy = false; doorNear = false;
   inVillage = false; inForest = false; inDeepForest = false; nearAncientGate = false; inCity = false; inMeadow = false; inSawah = false; inDusun = false; inKekaisaran = false; inDataranBL = false; desaBL = -1; inKotaDungeon = false; dgNear = false; dgNearId = -1; kekDistrict = -1; inChurch = false; churchBusy = false; world.church.show(false); inPalace = false; palaceBusy = false; palaceArea = ''; world.palace.show(false); inAula = false; aulaBusy = false; aulaCine = null; aulaArea = ''; world.aula.show(false); inInn = false; innBusy = false; world.inn.show(false); inGuild = false; guildBusy = false; guildNear = false; guildClose(); loot.closeForge(); if (guildRoom) guildRoom.show(false); if (smithRoom) smithRoom.show(false); if (potionRoom) potionRoom.show(false); if (lodgeRoom) lodgeRoom.show(false); guild = null; smithNear = false; potionNear = false; lodgeNear = false; worldFog.density = FOG_DENSITY;
   if (fromKota) { inKotaDungeon = true; dgNear = !kId; dgNearId = kId ? DUNGEON_GATES.findIndex(x => x.id === kId) : -1; }
+  inDataranTL = startTL; inMtnTop = false; inRidge = startTL && !START_AT_DESC && START_ON_RIDGE ? 1 : 0; inDesc = startTL && START_AT_DESC ? 2 : 0;   // sudah di padang: pesan masuk tidak perlu muncul lagi
   if (startKota) inKotaDungeon = true;   // sudah di kota (pesan sambutan ditampilkan di bawah); dgNear tetap false supaya petunjuk portal muncul saat dekat   // sudah di kota: pesan masuk & petunjuk portal tidak perlu muncul lagi
   if (inTown) inSawah = true;   // sudah di ladang: pesan masuk ladang tidak perlu muncul lagi
   if (inKek) { inKekaisaran = true; kekDistrict = -1; }   // sudah di kota: tinggi pemain mengikuti tangga istana; nama distrik muncul di tick pertama
-  $('msg').textContent = note || (startKota ? '⚔️ ' + DUNGEON_TOWN.name + '\n' + DUNGEON_TOWN.sub + ' — kota kecil para petualang\nKamu berada di Lembah Bebatuan\nPortal dungeon ada di dinding & ujung lembah' : fromKota ? '⚔️ ' + DUNGEON_TOWN.name + '\nKamu keluar dari ' + (kT ? DG_THEMES[kT].name : 'Gua Kristal') : inKek ? '👑 Halaman Istana\nIstana Kekaisaran\n🚪 Naiki tangga & masuk lewat pintu agung menuju Aula Raja' : fromGolem ? '🏛️ ' + RUINS.name + (golemBeaten ? '\nPenjaga telah ditaklukkan' : '\nKamu selamat keluar dari Pintu Penjaga') : inTown ? '🌾 ' + SAWAH.name + '\nJalan terus ke timur menuju ' + KEKAISARAN.name + '\nKota Arunika ada di barat' : fromHole ? 'Kembali ke Dataran Hijau' : 'Dataran Hijau\nCari lubang menuju dungeon\n🏘️ ' + VILLAGE.name + ' ada di sebelah timur\n🌲 ' + FOREST.name + ' ada di timur desa');
+  $('msg').textContent = note || (startTL ? '🌾 Padang Rumput Timur Laut\nHamparan rumput, bunga liar & hutan sejauh 500 m dari Gerbang Timur Laut\n⛰️ Pegunungan menjulang di kedua sisi; ada jalan setapak mendaki di sisi kiri & kanan\n🏔️ Jalan padang berujung di kaki Gunung Agung\n🏯 ' + KEKAISARAN.name + ' ada di belakangmu' : startKota ? '⚔️ ' + DUNGEON_TOWN.name + '\n' + DUNGEON_TOWN.sub + ' — kota kecil para petualang\nKamu berada di Lembah Bebatuan\nPortal dungeon ada di dinding & ujung lembah' : fromKota ? '⚔️ ' + DUNGEON_TOWN.name + '\nKamu keluar dari ' + (kT ? DG_THEMES[kT].name : 'Gua Kristal') : inKek ? '👑 Halaman Istana\nIstana Kekaisaran\n🚪 Naiki tangga & masuk lewat pintu agung menuju Aula Raja' : fromGolem ? '🏛️ ' + RUINS.name + (golemBeaten ? '\nPenjaga telah ditaklukkan' : '\nKamu selamat keluar dari Pintu Penjaga') : inTown ? '🌾 ' + SAWAH.name + '\nJalan terus ke timur menuju ' + KEKAISARAN.name + '\nKota Arunika ada di barat' : fromHole ? 'Kembali ke Dataran Hijau' : 'Dataran Hijau\nCari lubang menuju dungeon\n🏘️ ' + VILLAGE.name + ' ada di sebelah timur\n🌲 ' + FOREST.name + ' ada di timur desa');
   wildT = 1; calmT = 0;
   setTimeout(() => { if (state === 'world') $('msg').textContent = ''; }, 3500);
   const f = $('fade'); f.style.transition = 'opacity .9s'; f.style.opacity = 0;
@@ -5110,6 +5646,7 @@ let lyCamT = 0; const _lyH = new THREE.Vector3();   // 0..1 kekuatan sorotan Lyr
 const _cineV = new THREE.Vector3(), _camN = new THREE.Vector3(); let _cineOver = false;   // _camN = posisi kamera ikut-pemain yang terpisah dari kamera sorotan   // dipakai ulang tiap frame sorotan (tanpa alokasi)
 const skipAulaCine = () => { if (aulaCine && aulaCine.t < AULA_INTRO.sweep + AULA_INTRO.hold) aulaCine.t = AULA_INTRO.sweep + AULA_INTRO.hold; };
 addEventListener('pointerdown', skipAulaCine); addEventListener('keydown', skipAulaCine);
+let inDataranTL = false, inMtnTop = false, inRidge = 0, inDesc = 0, inSnowVillage = false;   // inDesc: 0 = bukan di Jalur Turun Lembah Salju, 1 = di jalan menuruni tebing, 2 = di lembah salju   // inRidge: 0 = bukan di Pegunungan Naga, 1 = di puncak punggungan, 2 = di tanjung ujung   // pemain sedang di Padang Rumput Timur Laut (500 m di luar Gerbang Timur Laut)
 let inVillage = false, inForest = false, inDeepForest = false, nearAncientGate = false, inCity = false, inMeadow = false, inSawah = false, inDusun = false, inKekaisaran = false, inDataranBL = false, desaBL = -1, inKotaDungeon = false, dgNear = false, dgNearId = -1, dgBusy = false, kekDistrict = -1, inChurch = false, churchBusy = false, inPalace = false, palaceBusy = false, palaceArea = '', inAula = false, aulaBusy = false, aulaArea = '', aulaWave = '', inInn = false, innBusy = false, innWave = '', innSaveNear = false, inGuild = false, guildBusy = false, guildWave = '', guildNear = false, guild = null, guildRoom = null, smithRoom = null, smithNear = false, potionRoom = null, potionNear = false, lodgeRoom = null, lodgeNear = false, shopDoor = GUILD_DOOR, GU = { open: false, el: null, opts: null };
 // Masuk / keluar Katedral Arunika: layar memudar, pemain dipindah ke ruang dalam (church.js) atau kembali ke alun-alun
 function churchGo(inside) {
@@ -5267,6 +5804,8 @@ const gBye = { t: 'Sampai nanti.', f: guildClose };
 // talkTarget(): siapa yang bisa diajak bicara sekarang? Kaelen (bila dekat) atau warga terdekat (radius 2.8 m). Mengembalikan { id, nama } atau null.
 let wargaHint = false;
 function talkTarget() {
+  { const ND = globalThis.NAGA_KUNO; if (state === 'world' && ND && !inGuild && !inInn && !GU.open && !QT.phase && !IT.open && !kaelenOn() && !nagaFoe && ND.near(player.position.x, player.position.z)) return { id: 'naga-kuno', nama: 'Naga Kuno' }; }   // Naga Kuno di Sarang Naga (Gunung Pendakian, Padang Rumput Timur Laut)
+  { const NL = globalThis.NAGA_LIAR; if (state === 'world' && NL && !inGuild && !inInn && !GU.open && !QT.phase && !IT.open && !kaelenOn() && !nagaFoe && NL.offer(player.position.x, player.position.z)) return { id: 'naga-liar', nama: 'Naga' }; }   // naga pegunungan yang baru menyerang & melayang dekat pemain (bisa dijinakkan bila Naga Kuno sudah kalah)
   if (state === 'world' && inDataranBL && !inKotaDungeon && !inGuild && !inInn && !GU.open && !QT.phase && !IT.open && !kaelenOn()) { const d = desaBLNear(player.position.x, player.position.z); if (d) return { id: 'bl:' + d.id, nama: d.name }; }   // warga dusun di padang
   if (state !== 'world' || !inKotaDungeon || inGuild || inInn || GU.open || QT.phase || IT.open || kaelenOn()) return null;
   const KB = globalThis.KAELEN_BATTLE; if (KB && KB.nearChallenge()) return { id: 'kaelen', nama: 'Kaelen' };
@@ -5284,6 +5823,8 @@ function desaTalk(id, pre) {   // warga 3 dusun di Padang Rumput Barat Laut (dat
     gBye]);
 }
 function wargaTalk(id, pre) {   // pre = kalimat yang ditampilkan (kosong = sapaan pertama)
+  if (id === 'naga-kuno') return nagaMenu(pre);
+  if (id === 'naga-liar') return nagaLiarMenu(pre);
   if (id.startsWith('bl:')) return desaTalk(id.slice(3), pre);
   const w = WARGA[id]; if (!w) return;
   guildShow((w.ikon || '🧑') + ' ' + w.nama + ' — ' + w.peran, pre || w.sapa, [
@@ -5292,6 +5833,260 @@ function wargaTalk(id, pre) {   // pre = kalimat yang ditampilkan (kosong = sapa
     ...(w.topik || []).map(k => ({ t: k.t, f: () => wargaTalk(id, k.a) })),   // pilihan tambahan khusus NPC ini (kalau ada)
     gBye]);
 }
+// ---- Naga Kuno (Sarang Naga): bicara dulu; sayapnya baru terbentang & mengepak setelah pemain MENANTANG, lalu bertarung ----
+// Alur: E dekat naga → percakapan → "Aku menantangmu" → naga membuka sayap (kekaisaran-dataran-tl.js) → event 'naga-kuno-tantangan' → nagaKunoStart() → pertarungan memakai dragonAI (cakar, laser napas, hentakan).
+// Naga kalah (HP habis) → mengakui kekalahan & memberi izin (nagaKalah, tersimpan di localStorage 'naga_kuno_izin', juga globalThis.NAGA_IZIN) → dialog izin di nagaMenu.
+// Pemain kalah / kabur jauh → naga kembali ke sarang (sayap menutup) dan bisa ditantang lagi.
+const NAGA_KUNO_CFG = { hp: 1100, r: 2.6, sp: 2.8, arena: 20, leash: 70, barH: 7.5, startDelay: 2300 };   // hp = darah | r = jari-jari badan | sp = kecepatan jalan | arena = jarak maks. dari pusat sarang (m) | leash = pemain lebih jauh dari ini → naga menyerah & pulang | startDelay = jeda (ms) dari tantangan sampai bertarung (sayap membuka dulu)
+globalThis.NAGA_IZIN = nagaKalah;
+const NAGA_NAMA = '🐉 Naga Kuno — Penguasa Gunung Naga';
+let nagaStage = 0;   // 0 = baru bertemu | 1 = pemain sudah menyampaikan niatnya (Raja Iblis) | 2 = naga sudah menyebut syaratnya
+function nagaMenu(pre) {
+  const ND = globalThis.NAGA_KUNO, tolak = { t: 'Aku belum siap. Aku akan kembali.', f: guildClose };
+  if (nagaKalah) {   // sudah dikalahkan: naga memberi izin
+    guildShow(NAGA_NAMA, pre || 'Sang naga terbaring di sarangnya, sayapnya terlipat. Napasnya berat, tetapi satu mata keemasan menatapmu — kini tanpa amarah.\n\n"Hhh... ribuan tahun tak ada yang membuatku tersungkur. Kau menepati kata-katamu, Louis. Naga tidak pernah mengingkari janji: izin itu milikmu. Salah satu anak-anakku di pegunungan ini akan terbang bersamamu — menembus badai, menyeberangi lautan, sampai ke Benua Iblis, dan berdiri di sisimu melawan Raja Iblis."', [
+      { t: 'Bagaimana aku menemukan naga itu?', f: () => nagaMenu('"Kau tak perlu mencarinya. Naga kami tahu kapan seorang manusia layak ditemani. Bila saatnya tiba, ia sendiri yang akan menemuimu."') },
+      { t: 'Apa yang menunggu kami di Benua Iblis?', f: () => nagaMenu('"Bara, kabut dan pasukan yang tak mengenal belas kasihan. Tapi kau baru saja membuat naga tertua tersungkur. Percayalah pada dirimu sendiri, Louis."') },
+      { t: 'Terima kasih, Naga Kuno.', f: guildClose }]);
+    return;
+  }
+  if (ND && ND.challenged) { guildShow(NAGA_NAMA, pre || 'Sayap raksasa itu terbentang lebar, mengepak dan mengguncang seluruh sarang.\n\n"Tak ada lagi yang perlu dibicarakan, Louis. Buktikan dengan cakarmu — bukan lidahmu!"', [{ t: '⚔️ Aku siap.', f: guildClose }]); return; }
+  if (nagaStage === 0) {
+    guildShow(NAGA_NAMA, pre || 'Sosok sebesar bukit itu meringkuk di tengah sarang, sayapnya terlipat rapat. Satu mata keemasan terbuka perlahan dan menatapmu.\n\n"Manusia kecil... sudah ratusan musim salju tak ada yang berani mendaki sampai ke sarangku. Katakan urusanmu, sebelum aku bosan."', [
+      { t: 'Siapa kau sebenarnya?', f: () => nagaMenu('"Aku yang tertua di antara naga. Pegunungan ini sudah menjadi sarangku sebelum kerajaan manusia pertama berdiri. Setiap naga di lereng dan puncak ini adalah keturunanku, dan semuanya tunduk pada kataku."') },
+      { t: 'Wahai Naga Kuno, izinkan aku membawa salah satu naga pegunungan ini untuk membantuku mengalahkan Raja Iblis.', f: () => { nagaStage = 1; nagaMenu('Uap tipis mengepul dari lubang hidung sang naga.\n\n"Raja Iblis... sudah lama aku tidak mendengar nama itu disebut dengan lantang oleh mulut manusia. Kau tahu apa yang kau minta? Kau menyuruhku merelakan darahku sendiri untuk perang yang bukan milik naga."'); } },
+      tolak]);
+  } else if (nagaStage === 1) {
+    guildShow(NAGA_NAMA, pre || '"Bicaralah lagi, manusia. Apa lagi yang kau inginkan dariku?"', [
+      { t: 'Aku juga harus pergi ke Benua Iblis. Hanya sayap naga yang bisa menyeberangi lautan ke sana.', f: () => { nagaStage = 2; nagaMenu('Sang naga terdiam lama. Matanya menyipit.\n\n"Benua Iblis... benar, tak ada kapal yang kembali dari sana. Hanya sayap naga yang sanggup menembus badai di lautan itu. Kau cukup pintar untuk tahu hal itu."\n\n"Baik, dengarkan syaratku: naga-naga gunung ini bukan tunggangan. Izin dariku ada harganya — KALAHKAN AKU. Di sarangku, dengan kekuatanmu sendiri. Kalau kau sanggup membuatku tersungkur, kau layak ditemani seekor naga sampai ke ujung dunia."'); } },
+      { t: 'Siapa kau sebenarnya?', f: () => nagaMenu('"Aku yang tertua di antara naga. Seluruh naga pegunungan ini adalah keturunanku."') },
+      tolak]);
+  } else {
+    guildShow(NAGA_NAMA, pre || '"Syaratku sudah jelas, Louis. Kalahkan aku, dan izin itu milikmu. Bagaimana?"', [
+      { t: 'Kenapa harus dengan bertarung?', f: () => nagaMenu('"Karena bahasa naga hanya satu: kekuatan. Seorang manusia yang tak sanggup menghadapiku di sini, tak akan sanggup menghadapi Raja Iblis di sana. Anggap ini ujianmu."') },
+      { t: '⚔️ Baik. Aku menantangmu, Naga Kuno!', f: () => guildShow(NAGA_NAMA, 'Sang naga bangkit perlahan. Tanah bergetar.\n\n"HA... akhirnya! Sudah lama tak ada yang berani. Kalau begitu, BERSIAPLAH, manusia!"', [{ t: '⚔️ Bersiap!', f: () => { guildClose(); const N = globalThis.NAGA_KUNO; if (N) N.challenge(); toast('🐉 Naga Kuno membentangkan sayapnya!', 3500); } }]) },
+      tolak]);
+  }
+}
+let nagaWait = 0;   // hitung mundur (detik) dari tantangan sampai bertarung; berjalan di nagaKunoTick, jadi menunggu bila pemain sempat keluar dari dunia luar
+// ---- Naga pegunungan (kawanan terbang di kekaisaran-dataran-tl.js): peluang menyerang 10% (FLY.attackChance di sana) | menjinakkan hanya bila Naga Kuno sudah dikalahkan (nagaKalah) ----
+const NAGA_LIAR_NAMA = '🐉 Naga Pegunungan';
+function nagaLiarMenu(pre) {
+  const NL = globalThis.NAGA_LIAR, d = NL && NL.offer(player.position.x, player.position.z);
+  if (!d) { guildClose(); return; }
+  NL.hold(d);   // selama berbicara naga tidak pergi
+  if (!nagaKalah) {   // belum ada restu: ditolak
+    guildShow(NAGA_LIAR_NAMA, pre || 'Naga itu melayang di depanmu, sayapnya mengepak kuat dan matanya menatap tajam. Kau mengulurkan tangan, tetapi ia menggeram dan menjauh.\n\nTak ada restu Naga Kuno pada dirimu. Naga-naga di pegunungan ini hanya tunduk pada penguasa mereka — kalahkan Naga Kuno di Hutan Salju lebih dulu.', [
+      { t: 'Mundur pelan-pelan', f: () => { guildClose(); NL.dismiss(d); } }]);
+    return;
+  }
+  guildShow(NAGA_LIAR_NAMA, pre || 'Naga itu melayang di depanmu. Amarahnya sudah reda: ia mengendus udara di sekitarmu dan mengenali restu Naga Kuno. Kepalanya merunduk pelan, menunggu uluran tanganmu.', [
+    { t: '🤲 Ulurkan tangan & jinakkan', f: () => { guildClose(); toast(NL.tame(d) ? '🐉 Naga ' + d.col.n + ' berhasil dijinakkan! Ia kini terbang mengiringimu.' : '🐉 Naga itu menjauh... coba lagi nanti.', 4200); } },
+    { t: 'Biarkan ia pergi', f: () => { guildClose(); NL.dismiss(d); } }]);
+}
+addEventListener('naga-liar-tempur', e => { if (e.detail && e.detail.D) nagaLiarStart(e.detail.D); });   // naga sudah turun ke depan pemain → pertarungan dimulai
+// ---- PERTARUNGAN NAGA PEGUNUNGAN: naga terbang RENDAH (di atas tanah, mengikuti tinggi tanah di bawah pemain) memakai AI naga (dragonAI): cakar jarak dekat, napas laser, hentakan. Kalah → melayang & bisa dijinakkan (bila Naga Kuno sudah kalah) ----
+const NAGA_LIAR_CFG = { hp: 380, sp: 6, leash: 70, hoverH: 3.2, barH: 6.5 };   // hp = darah | sp = kecepatan menjaga jarak | leash = pemain lebih jauh dari ini (m) → naga menyerah & kembali ke orbit | hoverH = tinggi terbang (m) dari kaki pemain
+let skyFoe = null;
+function nagaLiarEnd(e, mode) {   // bersihkan musuh & kembalikan model ke kawanan (mode: 'won' | 'giveup')
+  try { stopLaser(); } catch (x) { /* abaikan */ }
+  for (const m of e.mats) { try { m.emissive.setHex(0); } catch (x) { /* abaikan */ } }
+  const p = e.g.position, NL = globalThis.NAGA_LIAR;
+  scene.remove(e.g); const i = enemies.indexOf(e); if (i >= 0) enemies.splice(i, 1); skyFoe = null;
+  if (NL) NL.endBattle(e.D, mode, { x: p.x, y: p.y, z: p.z, yaw: e.g.rotation.y });
+}
+function nagaLiarAbort(err, where) {
+  console.error('[Naga Pegunungan] error di ' + where + ':', err);
+  const e = skyFoe; if (e) { try { nagaLiarEnd(e, 'giveup'); } catch (x) { skyFoe = null; } }
+  try { toast('⚠️ Pertarungan naga error di ' + where + ': ' + (err && err.message ? err.message : err), 9000); } catch (x) { /* abaikan */ }
+}
+function nagaLiarStart(D) {
+  const NL = globalThis.NAGA_LIAR, C = NAGA_LIAR_CFG; if (!NL || skyFoe || nagaFoe || state !== 'world') return;
+  try {
+    const B = NL.beginBattle(D); if (!B) return;
+    B.mats = (B.mats || []).filter(m => m && m.emissive);
+    const g = new THREE.Group(), model = new THREE.Group(); g.add(model); model.add(B.holder);
+    g.position.copy(B.pos); g.rotation.y = B.yaw;
+    const bar = makeBar(C.barH); g.add(bar.g); scene.add(g);
+    const r = Math.max(2.6, B.span * 0.17), k = B.k;
+    const e = { g, model, mat: B.mats[0] || new THREE.MeshStandardMaterial(), mats: B.mats, boss: false, dragon: true, skydrag: true, D, rig: null, bar, hp: C.hp, max: C.hp, sp: C.sp, r, cd: 1, wind: 0, flash: 0, kv: new THREE.Vector3(), stun: 0, orb: 2.5, slam: 7, ph: 0, bt: 0, st: 0, fired: false, fa: 1, wp: 0, wk: 0, wv: 0, turn: 0, px: g.position.x, pz: g.position.z, claw: 2, cl: 0, h1: false, h2: false, roarT: 0.2, ro: 0, rx: 0, rw: 0, done: false,
+      mouthFn: o => { const f = g.rotation.y; return o.copy(g.position).addScaledVector(new THREE.Vector3(Math.sin(f), 0, Math.cos(f)), 11 * k).setY(g.position.y + 0.4 * k); } };   // mulut: di depan hidung model
+    enemies.push(e); skyFoe = e; audio.sfx('roar'); shake = Math.max(shake, 0.5); toast('🐉 Seekor naga ' + D.col.n + ' menyerangmu!', 3200);
+  } catch (err) { nagaLiarAbort(err, 'nagaLiarStart'); }
+}
+function nagaLiarDefeat(e) {   // HP habis: naga tersungkur lalu melayang rendah & mengakui kekalahan
+  if (e.done) return; e.done = true;
+  const p = e.g.position.clone();
+  burst(p.clone().setY(p.y + 1), 0xffd36a, 40, 10); burst(p.clone(), 0xff8a40, 24, 7); shake = Math.max(shake, 0.8); audio.sfx('thud', { vol: 0.9, rate: 0.5 });
+  try { loot.drop(p.x, p.z, 'api', { strong: true }); } catch (err) { /* item hanya dijatuhkan bila sistem item aktif di dunia luar */ }
+  const D = e.D; nagaLiarEnd(e, 'won');
+  toast('🐉 Naga ' + D.col.n + ' dikalahkan!', 3000);
+  setTimeout(() => { const NL = globalThis.NAGA_LIAR; if (state === 'world' && !GU.open && !QT.phase && !IT.open && NL && NL.offer(player.position.x, player.position.z)) nagaLiarMenu(); }, 2200);   // naga bicara: bisa dijinakkan / ditolak
+}
+function nagaLiarTick(dt) {
+  const NL = globalThis.NAGA_LIAR; if (!NL) return;
+  // izinkan naga menyerang hanya saat pemain bebas di dunia luar (bukan dialog, penginapan, istana, dungeon, pertarungan Naga Kuno / naga lain)
+  NL.enabled = state === 'world' && !GU.open && !QT.phase && !IT.open && !kaelenOn() && !nagaFoe && !skyFoe && !inGuild && !inInn && !inPalace && !inChurch && !inKotaDungeon && P.hp > 0;
+  const e = skyFoe; if (!e) return;
+  try {
+    const C = NAGA_LIAR_CFG, p = e.g.position;
+    if (!enemies.includes(e)) { nagaLiarEnd(e, 'giveup'); return; }   // pemain kalah / dunia di-reset: naga kembali ke orbit
+    if (!isFinite(p.x) || !isFinite(p.y) || !isFinite(p.z)) throw new Error('posisi naga tidak valid (NaN)');
+    if (state !== 'world' || Math.hypot(player.position.x - p.x, player.position.z - p.z) > C.leash) { nagaLiarEnd(e, 'giveup'); toast('🐉 Naga itu terbang menjauh...', 2500); return; }
+    p.y += (player.position.y + C.hoverH + Math.sin(e.ph * 1.3) * 0.35 - p.y) * Math.min(1, 4 * dt);   // terbang rendah: tinggi mengikuti tanah di bawah pemain
+    for (const m of e.mats) m.emissive.copy(e.mat.emissive);   // kilatan terkena pukulan / memerah saat bersiap menyerang berlaku di seluruh badan
+    e.bar.g.visible = !e.dying; e.bar.fill.scale.x = Math.max(0.001, e.hp / e.max) * e.bar.w; e.bar.g.rotation.y = Math.atan2(cam.position.x - p.x, cam.position.z - p.z) - e.g.rotation.y;
+  } catch (err) { nagaLiarAbort(err, 'nagaLiarTick'); }
+}
+addEventListener('naga-kuno-tantangan', () => { nagaWait = NAGA_KUNO_CFG.startDelay / 1000; });   // sayap sempat membuka dulu, baru bertarung
+
+// ---- SKILL ES NAGA KUNO: (1) Semburan Es = membekukan & menjebak pemain -> langsung disambung kombo BOLA ES RAKSASA + PILAR ES; (2) Hujan Bola Es ----
+// Memakai ulang efek es bos Glacivor (balok es, tombol-mash untuk memecahkan es). Semua angka bisa diubah di sini:
+const NAGA_ICE = {
+  cdFirst: 4, cd: 8, rageCd: 0.7,   // cdFirst = jeda sebelum skill es pertama | cd = jeda antar skill es | rageCd = pengali jeda saat HP < 50% (makin kecil = makin sering)
+  breathDmg: 12, freeze: 3.2,       // damage semburan es | lama membeku (detik); tekan tombol berulang untuk memecahkan es lebih cepat
+  combo: { delay: 0.35, fall: 1.7, rad: 5, dmg: 40, kb: 18, scale: 1.6, height: 34 },   // delay = jeda dari beku sampai bola muncul | fall = lama bola jatuh (= lama peringatan) | rad = jari-jari hantaman | scale = ukuran bola
+  rain: { dur: 5, interval: 0.22, intervalRage: 0.15, spread: 11, warn: 1.0, rad: 2.2, dmg: 14, scale: 0.45, height: 24 }   // hujan bola es: dur = lama hujan | interval = jeda antar bola | spread = sebaran di sekitar pemain
+};
+const nIce = { cd: NAGA_ICE.cdFirst, rain: 0, rt: 0, n: 0, wait: 0, wx: 0, wz: 0, flip: false, drops: [], pil: [] };   // wait = hitung mundur kombo (diisi saat pemain membeku)
+function nagaIceDrop(x, z, big) {   // satu bola es jatuh dari langit: lingkaran peringatan biru membesar -> bola jatuh -> meledak
+  const C = NAGA_ICE, K = big ? C.combo : C.rain, rad = K.rad, warn = big ? K.fall : K.warn;
+  const wr = new THREE.Mesh(WARN_RING, glowMat(0x3ab8ff, 0.6)), wd = new THREE.Mesh(WARN_DISC, glowMat(0x3ab8ff, 0.22));
+  for (const m of [wr, wd]) { m.rotation.x = -Math.PI / 2; m.position.set(x, 0.07, z); scene.add(m); }
+  wr.scale.setScalar(rad); wd.scale.setScalar(0.01);
+  const b = makeIceBall(K.scale), r = ICEBOSS.ball.r * K.scale; b.g.position.set(x, K.height, z); scene.add(b.g);
+  nIce.drops.push({ x, z, t: 0, warn, rad, big, wr, wd, b, h: K.height, r, dmg: K.dmg });
+}
+function nagaIceRemoveDrop(d) { scene.remove(d.wr, d.wd, d.b.g); d.wr.material.dispose(); d.wd.material.dispose(); disposeMats(d.b.g); const i = nIce.drops.indexOf(d); if (i >= 0) nIce.drops.splice(i, 1); }
+function nagaIcePillars(x, z, rad) {   // pilar es raksasa menyembul di titik hantaman bola + cincin pilar di sekelilingnya (hanya tampilan; damage ada di hantaman bola)
+  const g = new THREE.Group(), mat = iceMat(), cones = []; g.position.set(x, 0, z);
+  const add = (px, pz, h, w, tx, tz, delay) => { const m = new THREE.Mesh(ICE_CONE, mat); m.position.set(px, 0, pz); m.scale.set(w, 0.001, w); m.rotation.set(tx, rnd(0, 6.28), tz); g.add(m); cones.push({ m, h, delay }); };
+  add(0, 0, 9, 1.7, 0, 0, 0);   // pilar utama di tengah
+  for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2 + rnd(-0.2, 0.2), r = rad * rnd(0.55, 0.95), t = rnd(0.12, 0.3); add(Math.cos(a) * r, Math.sin(a) * r, rnd(3, 5.5), rnd(0.5, 0.85), Math.sin(a) * t, -Math.cos(a) * t, 0.05 + i * 0.02); }
+  scene.add(g); nIce.pil.push({ g, mat, cones, t: 0 });
+}
+function nagaIceImpact(d) {   // bola mendarat
+  const p = new THREE.Vector3(d.x, 0, d.z), big = d.big;
+  nagaIceRemoveDrop(d);
+  burst(p.clone().setY(1), 0xdff6ff, big ? 36 : 14, big ? 12 : 8); lineSparks(p.clone().setY(0.6), big ? 40 : 18, big ? 12 : 8, 1.3, [0xffffff, 0x7fdcff]);
+  const rm = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 48), glowMat(0x9fe8ff)); rm.rotation.x = -Math.PI / 2; rm.position.set(d.x, 0.1, d.z); scene.add(rm); pulses.push({ m: rm, t: 0.45, dur: 0.45, max: d.rad * 1.3 });
+  shake = Math.max(shake, big ? 0.9 : 0.25); audio.sfx(big ? 'explosion' : 'thud', { vol: big ? 0.9 : 0.5, rate: big ? 1.1 : rnd(1.3, 1.7) });
+  hurtLyraArea(d.x, d.z, d.rad, d.dmg);
+  if (Math.hypot(player.position.x - d.x, player.position.z - d.z) < d.rad && iceHurt(d.dmg)) pushPlayer(_iv.set(player.position.x - d.x + 0.001, 0, player.position.z - d.z), big ? NAGA_ICE.combo.kb : 8);   // kena = terpental (balok es pecah)
+  if (big) nagaIcePillars(d.x, d.z, d.rad);
+}
+function nagaIceClear() {   // bersihkan semua efek es naga (naga kalah / pemain kalah / kabur) & bebaskan pemain dari balok es
+  for (const d of [...nIce.drops]) nagaIceRemoveDrop(d);
+  for (const q of nIce.pil) { scene.remove(q.g); disposeMats(q.g); } nIce.pil.length = 0;
+  nIce.rain = 0; nIce.wait = 0; nIce.n = 0; nIce.cd = NAGA_ICE.cdFirst;
+  if (iTrap || P.trap > 0) releaseTrap();
+}
+function nagaIceTick(e, dt) {   // dipanggil tiap frame dari nagaKunoTick selama naga bertarung
+  const C = NAGA_ICE, K = C.rain;
+  if (e.iceBreath && !(e.bt > 0)) e.iceBreath = false;   // semburan selesai: semburan api biasa kembali merah
+  // pilar es: menyembul cepat, bertahan sebentar, lalu tenggelam
+  for (const q of [...nIce.pil]) {
+    q.t += dt; const sink = clamp01((1.8 - q.t) / 0.6);
+    for (const c of q.cones) { const k = q.t - c.delay, up = 1 - Math.pow(1 - clamp01(k / 0.16), 3); c.m.scale.y = Math.max(0.001, c.h * up * sink); }
+    q.mat.opacity = 0.92 * (0.3 + 0.7 * sink);
+    if (q.t >= 1.8) { scene.remove(q.g); disposeMats(q.g); nIce.pil.splice(nIce.pil.indexOf(q), 1); }
+  }
+  // bola es yang sedang jatuh
+  for (const d of [...nIce.drops]) {
+    d.t += dt; const u = clamp01(d.t / d.warn);
+    d.wr.material.opacity = 0.35 + 0.3 * Math.sin(d.t * (14 + 14 * u)); d.wd.scale.setScalar(Math.max(0.01, d.rad * u)); d.wd.material.opacity = 0.18 + 0.2 * u;
+    d.b.g.position.y = d.r + (d.h - d.r) * (1 - u * u);   // makin cepat saat jatuh
+    d.b.core.rotation.x += dt * 3;
+    if (d.t >= d.warn) nagaIceImpact(d);
+  }
+  const comboOn = nIce.wait > 0 || nIce.drops.some(d => d.big);
+  if (nIce.wait > 0 && (nIce.wait -= dt) <= 0) {   // pemain sudah membeku -> bola es raksasa dijatuhkan tepat di tempatnya membeku (kalau es sudah dipecahkan sebelum itu, kombo batal)
+    if (P.trap > 0 || iTrap) { nagaIceDrop(nIce.wx, nIce.wz, true); toast('🧊 Bola es raksasa jatuh! Pecahkan es & menghindar!', 2200); }
+  }
+  // hujan bola es
+  if (nIce.rain > 0) {
+    nIce.rain -= dt; nIce.rt -= dt;
+    if (nIce.rt <= 0) {
+      nIce.rt = e.h50 ? K.intervalRage : K.interval; const n = nIce.n++;
+      let x = player.position.x, z = player.position.z;
+      if (n % 3 !== 0) { const a = rnd(0, 6.28), r = rnd(1.5, K.spread); x += Math.cos(a) * r; z += Math.sin(a) * r; }   // tiap bola ke-3 tepat di tempat pemain berdiri
+      nagaIceDrop(x, z, false);
+    }
+    if (e.flash <= 0) e.mat.emissive.setRGB(0.04, 0.22 + 0.1 * Math.sin(nIce.rain * 8), 0.5);   // naga bersinar biru selama hujan
+    if (nIce.rain <= 0) nIce.cd = C.cd * (e.h50 ? C.rageCd : 1);
+  }
+  // selama skill es aktif, serangan bawaan naga ditahan supaya tidak bertumpuk
+  if (comboOn || nIce.rain > 0) { e.orb = Math.max(e.orb, 1.2); e.slam = Math.max(e.slam, 1.2); e.claw = Math.max(e.claw, 1.2); }
+  // pilih skill es berikutnya (bergantian: semburan es <-> hujan bola es), hanya saat naga sedang tidak menyerang
+  nIce.cd -= dt;
+  if (nIce.cd <= 0 && !comboOn && nIce.rain <= 0 && !(e.bt > 0 || e.st > 0 || e.cl > 0) && e.stun <= 0 && !e.dying && P.trap <= 0) {
+    nIce.flip = !nIce.flip; nIce.cd = C.cd * (e.h50 ? C.rageCd : 1);
+    e.orb = Math.max(e.orb, 3); e.slam = Math.max(e.slam, 3); e.claw = Math.max(e.claw, 2);
+    if (nIce.flip) { e.iceBreath = true; e.bt = 0.001; e.fired = false; e.ls = Math.random() < 0.5 ? -1 : 1; toast('❄️ Naga Kuno menarik napas es!', 2000); }   // memakai animasi semburan naga yang sudah ada
+    else { nIce.rain = K.dur; nIce.rt = 0; nIce.n = 0; e.ro = 0.001; e.roarT = 5; audio.sfx('roar'); shake = Math.max(shake, 0.5); toast('🧊 Hujan bola es!', 2000); }
+  }
+}
+function nagaKunoClearFx() { nagaIceClear(); stopLaser(); clearBlasts(); for (const r of [...rings]) if (r.kind === 'dragon') { scene.remove(r.m); rings.splice(rings.indexOf(r), 1); } }
+function nagaKunoAbort(err, where) {   // pengaman: error di dalam fitur ini TIDAK boleh membekukan game. Naga dikembalikan ke sarang, penyebabnya ditulis ke konsol (F12).
+  console.error('[Naga Kuno] error di ' + where + ':', err);
+  const e = nagaFoe; nagaFoe = null; nagaWait = 0;
+  try { nagaKunoClearFx(); } catch (x) { /* abaikan */ }
+  if (e) { try { for (const m of e.mats) m.emissive.setHex(0); } catch (x) { /* abaikan */ } try { scene.remove(e.g); } catch (x) { /* abaikan */ } const i = enemies.indexOf(e); if (i >= 0) enemies.splice(i, 1); }
+  try { const ND = globalThis.NAGA_KUNO; if (ND) ND.endBattle(true); } catch (x) { /* abaikan */ }
+  try { toast('⚠️ Naga Kuno error di ' + where + ': ' + (err && err.message ? err.message : err), 9000); } catch (x) { /* abaikan */ }   // PERBAIKAN: pesan error asli ikut tampil di layar (berguna di HP/Android yang tidak punya F12)
+}
+function nagaKunoStart() {
+  const ND = globalThis.NAGA_KUNO, C = NAGA_KUNO_CFG;
+  if (!ND || nagaFoe || nagaKalah || !ND.challenged || state !== 'world') return;
+  try {
+    const B = ND.beginBattle(); if (!B) return;
+    B.mats = (B.mats || []).filter(m => m && m.emissive);   // PERBAIKAN: hanya pakai bahan yang punya 'emissive' (kilatan merah/putih). Bahan lain (mis. MeshBasicMaterial) bikin error saat naga dipukul
+    const g = new THREE.Group(), model = new THREE.Group(); g.add(model); model.add(B.holder);   // model naga dewasa (animasi sayap tetap dijalankan kekaisaran-dataran-tl.js) dipindah ke musuh
+    B.holder.position.set(0, 0, 0); B.holder.rotation.set(0, 0, 0);
+    g.position.set(ND.x, 0, ND.z); g.rotation.y = Math.atan2(player.position.x - ND.x, player.position.z - ND.z);
+    const bar = makeBar(C.barH); g.add(bar.g); scene.add(g);
+    const e = { g, model, mat: B.mats[0] || new THREE.MeshStandardMaterial(), mats: B.mats, mouthFn: B.mouth, boss: false, dragon: true, nagakuno: true, rig: null, bar, hp: C.hp, max: C.hp, sp: C.sp, r: C.r, cd: 1, wind: 0, flash: 0, kv: new THREE.Vector3(), stun: 0, orb: 2.5, slam: 7, ph: 0, bt: 0, st: 0, fired: false, fa: 1, wp: 0, wk: 0, wv: 0, turn: 0, px: g.position.x, pz: g.position.z, claw: 2, cl: 0, h1: false, h2: false, roarT: 0.2, ro: 0, rx: 0, rw: 0, h50: false, done: false };
+    enemies.push(e); nagaFoe = e; audio.sfx('roar'); shake = Math.max(shake, 0.5); toast('🐉 Naga Kuno — Penguasa Gunung Naga', 3200);
+    console.info('[Naga Kuno] pertarungan dimulai', { x: ND.x, z: ND.z, mats: B.mats.length });
+  } catch (err) { nagaKunoAbort(err, 'nagaKunoStart'); }
+}
+function nagaKunoGiveUp(e) {   // pemain kabur terlalu jauh: naga pulang ke sarang, sayap menutup, bisa ditantang lagi
+  nagaKunoClearFx(); for (const m of e.mats) m.emissive.setHex(0);
+  const ND = globalThis.NAGA_KUNO; if (ND) ND.endBattle(true);
+  scene.remove(e.g); const i = enemies.indexOf(e); if (i >= 0) enemies.splice(i, 1); nagaFoe = null;
+  toast('🐉 Naga Kuno kembali ke sarangnya...', 3000);
+}
+function nagaKunoDefeat(e) {   // dipanggil hurtEnemy saat HP habis: naga tidak mati, ia tersungkur & mengakui kekalahan
+  if (e.done) return; e.done = true;
+  const p = e.g.position, ND = globalThis.NAGA_KUNO;
+  nagaKunoClearFx(); for (const m of e.mats) m.emissive.setHex(0);
+  burst(p.clone().setY(3), 0xffd36a, 50, 11); burst(p.clone().setY(2), 0xff8a40, 30, 8); shake = Math.max(shake, 0.9); audio.sfx('thud', { vol: 0.9, rate: 0.4 });
+  try { loot.drop(p.x, p.z, 'api', { strong: true }); loot.drop(p.x + 1.5, p.z, 'api', { strong: true }); loot.drop(p.x - 1.5, p.z, 'api', { strong: true }); } catch (err) { /* item hanya dijatuhkan bila sistem item aktif di dunia luar */ }
+  nagaKalah = true; globalThis.NAGA_IZIN = true; try { localStorage.setItem('naga_kuno_izin', '1'); } catch (err) { /* abaikan */ }
+  if (ND) { ND.defeated = true; ND.endBattle(false, { x: p.x, z: p.z, yaw: e.g.rotation.y }); }   // model kembali ke sarang tepat di tempat ia jatuh
+  scene.remove(e.g); const i = enemies.indexOf(e); if (i >= 0) enemies.splice(i, 1); nagaFoe = null;
+  toast('🐉 Naga Kuno telah dikalahkan!', 3500);
+  setTimeout(() => { const N = globalThis.NAGA_KUNO; if (state === 'world' && !GU.open && !QT.phase && !IT.open && N && N.near(player.position.x, player.position.z, 25)) nagaMenu(); }, 3200);   // naga bicara: memberi izin
+}
+function nagaKunoTick(dt) {
+  const ND = globalThis.NAGA_KUNO; if (!ND) return;
+  if (!ND.synced) { ND.synced = true; if (nagaKalah) ND.defeated = true; }   // izin tersimpan dari sesi sebelumnya → naga sudah kalah
+  if (nagaWait > 0 && (nagaWait -= dt) <= 0) nagaKunoStart();
+  const e = nagaFoe; if (!e) return;
+  try {
+    if (!enemies.includes(e)) { nagaFoe = null; nagaKunoClearFx(); for (const m of e.mats) m.emissive.setHex(0); ND.endBattle(true); return; }   // pemain kalah / dunia di-reset: naga kembali ke sarang
+    const p = e.g.position, C = NAGA_KUNO_CFG, h = ND.home;
+    if (!isFinite(p.x) || !isFinite(p.z)) throw new Error('posisi naga tidak valid (NaN)');
+    const dh = Math.hypot(p.x - h.x, p.z - h.z), lim = Math.max(8, Math.min(ND.R - 4, C.arena));   // tetap di tanah sarang (datar, tanpa pohon & batu)
+    if (dh > lim) { p.x = h.x + (p.x - h.x) * lim / dh; p.z = h.z + (p.z - h.z) * lim / dh; }
+    if (Math.hypot(player.position.x - p.x, player.position.z - p.z) > C.leash) { nagaKunoGiveUp(e); return; }
+    nagaIceTick(e, dt);   // skill es: semburan beku + kombo bola es raksasa, hujan bola es
+    for (const m of e.mats) m.emissive.copy(e.mat.emissive);   // kilatan terkena pukulan / memerah saat bersiap menyerang berlaku di seluruh badan
+    if (!e.h50 && e.hp < e.max * 0.5) { e.h50 = true; e.sp *= 1.3; e.roarT = 0; shake = Math.max(shake, 0.7); toast('🔥 Naga Kuno mengamuk!', 2500); }   // di bawah 50% HP: lebih cepat & meraung
+    e.bar.g.visible = !e.dying; e.bar.fill.scale.x = Math.max(0.001, e.hp / e.max) * e.bar.w; e.bar.g.rotation.y = Math.atan2(cam.position.x - p.x, cam.position.z - p.z) - e.g.rotation.y;
+  } catch (err) { nagaKunoAbort(err, 'nagaKunoTick'); }
+}
+
 // ---- Kaelen: bicara dulu, duel hanya kalau pemain memilih menantang ----
 const KAELEN_NAMA = '🛡️ Kaelen — Pendekar Kardus';
 function kaelenMenu(pre) {
@@ -5538,6 +6333,24 @@ function worldTick() {
       kekDistrict = dn;
       if (dn === 0) say('👑 Halaman Istana\nIstana Kekaisaran\n🚪 Naiki tangga & masuk lewat pintu agung menuju Aula Raja');
       else { const d = DISTRICTS[dn - 1]; say((d.n === 1 ? '⚔️ ' : d.n === 2 ? '🛍️ ' : d.n === 3 ? '🏰 ' : d.n === 4 ? '🔮 ' : d.n === 5 ? '🏛️ ' : '🚧 ') + d.name + ' — ' + d.sub + (d.built ? '' : '\nSegera dibangun')); }
+    }
+  }
+  { // Padang Rumput Timur Laut: hamparan 500 m di luar Gerbang Timur Laut (histeresis 6 m supaya pesan tidak berulang di tepinya)
+    if (!inDataranTL && inNePlain(px, pz)) { inDataranTL = true; say('🌾 Padang Rumput Timur Laut\nHamparan rumput, bunga liar & hutan sejauh 500 m dari Gerbang Timur Laut\n⛰️ Pegunungan menjulang di kedua sisi; ada jalan setapak mendaki di sisi kiri & kanan\n🏔️ Jalan padang berujung di kaki Gunung Agung'); }
+    else if (inDataranTL && !inNePlain(px, pz, 6)) inDataranTL = false;
+    const mtnTopNo = neMtnTopWhich(px, pz);   // 0 = bukan di puncak, 1 = Gunung Pendakian (kiri), 2 = Gunung Seberang (kanan), 3 = Gunung Agung (ujung padang)
+    if (!inMtnTop && mtnTopNo) { inMtnTop = true; say(mtnTopNo === 3 ? '⛰️ Puncak Gunung Agung\nPuncak tertinggi di ujung padang — Padang Rumput Timur Laut & kekaisaran terbentang jauh di bawah\n🌉 Jembatan Langit ke arah belakang menuju Pegunungan Naga' : mtnTopNo === 2 ? '⛰️ Puncak Gunung Seberang\nPemandangan seluruh Padang Rumput Timur Laut terbentang di bawah' : '⛰️ Puncak Gunung Pendakian\nPemandangan seluruh Padang Rumput Timur Laut terbentang di bawah'); }   // dataran puncak (jalan setapak spiral naik dari kaki gunung)
+    else if (inMtnTop && !neMtnTop(px, pz, 4)) inMtnTop = false;
+    const ridgeNo = neRidgeZone(px, pz, inRidge ? 4 : 0);   // 0 = bukan di puncak Pegunungan Naga, 1 = di puncak punggungan, 2 = di tanjung ujung (histeresis supaya pesan tidak berulang di tepinya)
+    if (ridgeNo && ridgeNo !== inRidge && (ridgeNo === 2 || !inRidge)) say(ridgeNo === 2 ? '🌄 Tanjung Pandang\nUjung Pegunungan Naga — lautan awan terbentang di kedua sisi, jauh di bawah' : '🌉 Pegunungan Naga\nPunggungan gunung memanjang di belakang Gunung Agung\n🛤️ Ikuti jalan tanah yang berkelok di puncaknya sampai ke ujung');
+    inRidge = ridgeNo || 0;
+    const descNo = neDescZone(px, pz, inDesc ? 4 : 0);   // 0 = bukan di Jalur Turun, 1 = di jalan berkelok menuruni tebing, 2 = di lembah salju (histeresis supaya pesan tidak berulang di tepinya)
+    if (descNo > inDesc) say(descNo === 3 ? '🌲 Hutan Salju\nPinus bersalju rapat di seberang jembatan\n🧊 Golem Es berkeliaran di sini — waspada hantaman tanahnya!' : descNo === 2 ? '❄️ Lembah Salju\nSungai beku berkelok di antara pinus bersalju\n🌉 Seberangi jembatan kayu untuk terus berjalan' : '⛰️ Jalur Turun Lembah Salju\nJalan tanah berkelok menuruni tebing dari Tanjung Pandang\n❄️ Salju mulai tampak di bawah sana');
+    inDesc = descNo || 0;
+    { // Desa Salju Hening (sisi kanan lembah): pesan saat masuk; keluar di 6 m dari pagar supaya pesan tidak berulang di tepinya
+      const inV = neVillageZone(px, pz, inSnowVillage ? 6 : 0);
+      if (inV && !inSnowVillage) say('🏘️ ' + NE_VILLAGE.name + '\nDesa kecil bersalju di sisi kanan lembah\n🛡️ Aman: Yeti & Golem Es tidak bisa masuk ke sini');
+      inSnowVillage = inV;
     }
   }
   { // Padang Rumput Barat Laut: hamparan 400 m di luar Gerbang Barat Laut (histeresis 6 m supaya pesan tidak berulang di tepinya)
@@ -5794,19 +6607,19 @@ function lineSparks(pos, n = 30, speed = 7, up = 1, cols = [0xf3e6ff, 0xa23cff])
     m.position.copy(pos);
     const v = new THREE.Vector3(rnd(-1, 1), rnd(0.2, 1.5) * up, rnd(-1, 1)).normalize().multiplyScalar(speed * rnd(0.35, 1));
     const life = rnd(0.5, 1.0);
-    sparks.push({ m, v, life, max: life, len: rnd(0.25, 0.8) }); scene.add(m);
+    sparks.push({ m, v, life, max: life, len: rnd(0.25, 0.8), fy: Math.min(pos.y, fxY) }); scene.add(m);   // fy = lantai pantul (tinggi tanah di tempat percikan muncul, bukan selalu 0)
   }
 }
 function updateSparks(dt) {
   for (const s of [...sparks]) {
     s.life -= dt; s.v.y -= 10 * dt; s.m.position.addScaledVector(s.v, dt);
-    if (s.m.position.y < 0.03) { s.m.position.y = 0.03; s.v.y = Math.abs(s.v.y) * 0.25; s.v.x *= 0.7; s.v.z *= 0.7; } // memantul di lantai
+    const sf = gAt(s.m.position.x, s.m.position.z, s.fy); if (s.m.position.y < sf + 0.03) { s.m.position.y = sf + 0.03; s.v.y = Math.abs(s.v.y) * 0.25; s.v.x *= 0.7; s.v.z *= 0.7; } // memantul di lantai
     if (s.v.lengthSq() > 1e-6) s.m.lookAt(s.m.position.clone().add(s.v)); // garis memanjang searah gerak
     s.m.scale.z = s.len * (0.4 + Math.min(1, s.v.length() / 6));
     s.m.material.opacity = Math.max(0, s.life / s.max);
     if (s.life <= 0) { scene.remove(s.m); s.m.material.dispose(); sparks.splice(sparks.indexOf(s), 1); }
   }
-  D.flash = Math.max(0, D.flash - dt * 4); hitLight.intensity = D.flash * 60; hitLight.position.set(player.position.x, 1.3, player.position.z);
+  D.flash = Math.max(0, D.flash - dt * 4); hitLight.intensity = D.flash * 60; hitLight.position.set(player.position.x, player.position.y + 1.3, player.position.z);
 }
 
 function startDefeat() {
@@ -5974,7 +6787,7 @@ const ISA_ENV = {   // dunia luar untuk Isabel (ikut keluar istana): induk objek
     if (inKekaisaran && world.inn.ready && world.inn.inside(x, z)) { const o = world.inn.spawn.out; return [o.x, o.z]; }   // Isabel masih di dalam penginapan padahal pemain sudah keluar: ia muncul di depan pintu
     _isaV.set(x, 0, z); world.collide(_isaV, r); world.clamp(_isaV); return [_isaV.x, _isaV.z];
   },
-  ground: (x, z) => inKekaisaran ? world.kekGroundY(x, z) : 0,
+  ground: (x, z) => inKekaisaran ? world.kekGroundY(x, z) : neMtnH(x, z),
 };
 const isabelNear = () => state === 'world' && !inPalace && !inChurch && !aulaBusy && !aulaCine && !QT.phase && !IT.open && world.aula.isabelNear(player.position.x, player.position.z, player.position.y);
 const INN_ENV = {   // Isabel ikut masuk Penginapan Karavan (ruang umum & kamar): tabrakan dinding/perabot penginapan (posisinya dijepit ke dalam ruangan = ia langsung muncul di dalam bersama pemain), lantai = lantai ruangan
@@ -6575,7 +7388,7 @@ function frame() {
     const moving = mv.lengthSq() > 0;
     if (P.trap > 0 || P.hs > 0) { P.v.set(0, 0, 0); }   // terjebak balok es / baru terpental: tidak bisa berjalan (dorongan di bawah)
     else if (P.roll > 0) { player.position.addScaledVector(P.rv, 11 * dt); P.roll -= dt; P.v.copy(P.rv).multiplyScalar(5); }
-    else if (P.vs > 0 || P.sl > 0 || P.sm > 0 || P.pt > 0 || P.ex > 0) { P.v.set(0, 0, 0); } // saat Vertical Spin / Slash Besar, gerak diatur vsTick / slTick
+    else if (P.vs > 0 || P.sl > 0 || P.sm > 0 || P.pt > 0 || P.ex > 0) { P.v.set(0, 0, 0); } // saat Vertical Spin / Dash Zig-zag, gerak diatur vsTick / slTick
     else if (P.atk > 0 && P.cross) { // gerak otomatis: maju sedikit di tiap tebasan (melangkah saat menebas)
       const el = P.dur - P.atk, f = new THREE.Vector3(Math.sin(P.face), 0, Math.cos(P.face)), bT = CX.n * CX.step, fin = el >= bT;
       const u = fin ? (el - bT) / CX.finT : (el % CX.step) / CX.step;
@@ -6616,10 +7429,11 @@ function frame() {
     else { if (P.drawT > 0) P.drawT -= dt; P.runT = moving && P.roll <= 0 ? P.runT + dt : 0; if (P.runT > RUN_SHEATH) P.drawT = 0; }
     setDrawn(P.atk > 0 || P.drawT > 0);
     P.heavy += ((P.drawT > 0 ? 1 : 0.3) - P.heavy) * (1 - Math.exp(-dt * (P.drawT > 0 ? 8 : 1.5))); // napas berat -> ringan
-    updateEnemies(dt); collidePlayer(); kaelenGuard(); // musuh bergerak/terpental lalu cek tabrakan lagi
+    try { updateEnemies(dt); } catch (err) { if (nagaFoe) nagaKunoAbort(err, 'updateEnemies'); else if (skyFoe) nagaLiarAbort(err, 'updateEnemies'); else throw err; }   // error karena Naga Kuno: batalkan pertarungannya, jangan bekukan game
+    collidePlayer(); kaelenGuard(); // musuh bergerak/terpental lalu cek tabrakan lagi
     loot.update(dt, state);   // item jatuhan, peti hadiah, tombol tas
     if (exploreMode) exploreTick(dt);   // dungeon jelajah: cahaya, kristal, gerbang bos, hitung musuh
-    if (state === 'world') wildSpawnTick(dt); // monster liar di hutan: muncul acak, hilang kalau jauh, darah pulih saat aman
+    if (state === 'world') { wildSpawnTick(dt); iceGolemTick(dt); yetiTick(dt); nagaKunoTick(dt); nagaLiarTick(dt); } // monster liar di hutan: muncul acak, hilang kalau jauh, darah pulih saat aman
     qtTick(dt);
     poseAndAnimate(dt, P.roll > 0 ? 0 : Math.min(1, P.v.length() / 5.5));
     if (state === 'world') worldTick(); // petunjuk arah & cek masuk lubang
@@ -6629,6 +7443,7 @@ function frame() {
     }
   } else if (state === 'lose') defeatTick(dt);
   else if (state === 'fall') fallTick(dt);
+  fxY = P.air ? slGround(player.position.x, player.position.z, player.position.y) : player.position.y;
   airTick(dt);
   updateSwords(dt);
   tickSkills(dt);
@@ -6654,7 +7469,7 @@ function frame() {
   const C = CAMS[camMode];
   if (!orbit()) camYaw += (0 - camYaw) * Math.min(1, rdt * 5); // mode lain: kembali ke depan. Mode 360°: bebas
   zoomS += (zoom - zoomS) * Math.min(1, rdt * 10);
-  let lx = target.x, lz = target.z, ly = C.look + (state === 'fall' ? player.position.y * 0.85 : (inPalace || inAula || (state === 'world' && inKekaisaran)) ? player.position.y : P.air ? player.position.y * 0.8 : 0); // di istana lantai 2 / panggung singgasana kamera ikut menatap setinggi lantai
+  let lx = target.x, lz = target.z, ly = C.look + (state === 'fall' ? player.position.y * 0.85 : (inPalace || inAula || (state === 'world' && (inKekaisaran || player.position.y > 0.5))) ? player.position.y : P.air ? player.position.y * 0.8 : 0); // di istana lantai 2 / panggung singgasana kamera ikut menatap setinggi lantai
   if (state === 'lose') { // kamera sinematik: turun rendah, mendekat dari samping
     const f = faceVec(), sd = new THREE.Vector3(f.z, 0, -f.x), low = clamp01((D.t - 0.3) / 1.2);
     const want = target.clone().addScaledVector(sd, 4.6 - 1.3 * low).addScaledVector(f, 0.8).setY(1.4 - 0.85 * low);
